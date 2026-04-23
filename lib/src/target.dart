@@ -67,6 +67,13 @@ final class Target {
 
   /// The library file prefix for this target ('lib' or '').
   String get libraryPrefix {
+    if (linkMode is StaticLinking) {
+      return switch (os) {
+        'windows' => '',
+        _ => 'lib',
+      };
+    }
+
     return switch (os) {
       'windows' => '',
       _ => 'lib',
@@ -75,6 +82,13 @@ final class Target {
 
   /// The library file extension for this target.
   String get libraryExtension {
+    if (linkMode is StaticLinking) {
+      return switch (os) {
+        'windows' => '.lib',
+        _ => '.a',
+      };
+    }
+
     return switch (os) {
       'windows' => '.dll',
       'macos' || 'ios' => '.dylib',
@@ -91,10 +105,6 @@ final class Target {
 
   /// Returns the expected library file name for this target.
   String libraryFileName(String name) {
-    return switch (os) {
-      'windows' => '$name.dll',
-      'macos' || 'ios' => 'lib$name.dylib',
-      _ => 'lib$name.so',
-    };
+    return '$libraryPrefix$name$libraryExtension';
   }
 }

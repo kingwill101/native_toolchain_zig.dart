@@ -51,7 +51,6 @@ Future<void> main(List<String> arguments) async {
   await build(arguments, (input, output) async {
     await ZigBuilder(
       assetName: 'my_package.dart',
-      zigDir: 'zig/',
     ).run(input: input, output: output);
   });
 }
@@ -197,7 +196,9 @@ Future<void> main(List<String> arguments) async {
 > directories and files your build depends on (e.g. `"src"`, C headers,
 > embedded data files).
 >
-> The `name` field (`.my_package`) is a comptime enum literal and is ignored.
+> `ZigBuilder` uses the `name` field (`.my_package`) to find the installed
+> library artifact. Keep it aligned with the library name in `build.zig`, or
+> pass `libraryName` explicitly.
 
 5. Create `zig/src/lib.zig`:
 

@@ -6,6 +6,9 @@
   mode.
 - Bundle a Zig metadata dumper used by the generator instead of relying on
   Zig's currently unavailable header emission.
+- Improve Zig build robustness by inferring library names from `build.zig.zon`,
+  resolving static archive filenames, and passing Android NDK C toolchain
+  variables through to `zig build`.
 
 ## 0.1.1
 

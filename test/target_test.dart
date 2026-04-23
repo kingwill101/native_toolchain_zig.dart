@@ -126,6 +126,27 @@ void main() {
         Target target = Target.from(Architecture.arm64, OS.android, linkMode);
         expect(target.libraryExtension, equals('.so'));
       });
+
+      test('returns static archive extensions for static linking', () {
+        StaticLinking staticLinking = StaticLinking();
+
+        expect(
+          Target.from(
+            Architecture.x64,
+            OS.linux,
+            staticLinking,
+          ).libraryExtension,
+          equals('.a'),
+        );
+        expect(
+          Target.from(
+            Architecture.x64,
+            OS.windows,
+            staticLinking,
+          ).libraryExtension,
+          equals('.lib'),
+        );
+      });
     });
 
     group('libraryFileName', () {
@@ -152,6 +173,27 @@ void main() {
       test('formats android library name', () {
         Target target = Target.from(Architecture.arm64, OS.android, linkMode);
         expect(target.libraryFileName('mylib'), equals('libmylib.so'));
+      });
+
+      test('formats static library names', () {
+        StaticLinking staticLinking = StaticLinking();
+
+        expect(
+          Target.from(
+            Architecture.x64,
+            OS.linux,
+            staticLinking,
+          ).libraryFileName('mylib'),
+          equals('libmylib.a'),
+        );
+        expect(
+          Target.from(
+            Architecture.x64,
+            OS.windows,
+            staticLinking,
+          ).libraryFileName('mylib'),
+          equals('mylib.lib'),
+        );
       });
     });
   });

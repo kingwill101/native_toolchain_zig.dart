@@ -3,10 +3,11 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
+import 'package:native_toolchain_zig/src/build_environment.dart';
 import 'package:native_toolchain_zig/src/code_config_mapping.dart';
 import 'package:native_toolchain_zig/src/target.dart';
 import 'package:native_toolchain_zig/src/utils.dart' as utils;
-import 'package:native_toolchain_zig/src/zon_parser.dart';
+import 'package:native_toolchain_zig/src/zig_project.dart';
 import 'package:path/path.dart' as path;
 
 /// Builds Zig code as native assets using `zig build`.
@@ -19,7 +20,7 @@ class ZigBuilder implements Builder {
   /// Only [assetName] is required. All other parameters have sensible defaults.
   const ZigBuilder({
     required this.assetName,
-    required this.zigDir,
+    this.zigDir,
     this.libraryName,
     this.optimization = Optimization.releaseSafe,
     this.extraArguments = const <String>[],
@@ -32,8 +33,9 @@ class ZigBuilder implements Builder {
 
   /// Path to the Zig project directory relative to package root.
   ///
-  /// For example: `zig/`, `native/` or `src/`.
-  final String zigDir;
+  /// For example: `zig/`, `native/` or `src/`. If omitted, [ZigBuilder]
+  /// searches those directories in that order.
+  final String? zigDir;
 
   /// The library name as defined in build.zig.
   ///
@@ -83,24 +85,14 @@ class ZigBuilder implements Builder {
     String packageName = input.packageName;
     String packageRoot = input.packageRoot.toFilePath();
 
-    String zigDirectory = path.join(packageRoot, zigDir);
-
-    if (!Directory(zigDirectory).existsSync()) {
-      throw BuildError(message: 'Zig directory not found: $zigDirectory.');
-    }
-
-    File buildZig = File(path.join(zigDirectory, 'build.zig'));
-
-    if (!buildZig.existsSync()) {
-      throw BuildError(
-        message:
-            'build.zig not found in $zigDirectory.\n'
-            'Create a build.zig file for your Zig project.',
-      );
-    }
+    ZigProject project = resolveZigProject(
+      packageRoot: packageRoot,
+      zigDir: zigDir,
+    );
 
     LinkMode linkMode = input.config.code.linkMode;
     Target target = Target.fromBuildConfig(input.config);
+    String libName = libraryName ?? project.name ?? packageName;
 
     logger.info('Building for ${target.triple} ($optimization).');
 
@@ -124,7 +116,11 @@ class ZigBuilder implements Builder {
 
     ProcessResult result = await utils.run(
       arguments,
-      workingDirectory: zigDirectory,
+      workingDirectory: project.directory.path,
+      environment: buildEnvironment(
+        codeConfig: input.config.code,
+        target: target,
+      ),
       logger: logger,
     );
 
@@ -145,47 +141,38 @@ class ZigBuilder implements Builder {
       logger.fine(stdout);
     }
 
-    String libName = libraryName ?? packageName;
     Uri libPath = _locateLibrary(input.outputDirectory, libName, target);
 
-    output.dependencies.add(buildZig.uri);
+    output.dependencies.add(project.buildZig.uri);
 
-    File buildZigZon = File(path.join(zigDirectory, 'build.zig.zon'));
-
-    if (buildZigZon.existsSync()) {
+    File? buildZigZon = project.buildZigZon;
+    if (buildZigZon != null) {
       output.dependencies.add(buildZigZon.uri);
 
-      // To compile itself.
-      // TODO(build.zig.zon): write ZON parser in Dart.
-      if (packageName != 'native_toolchain_zig') {
-        // Validate?
-        Object? zon = parseZon(buildZigZon.readAsStringSync());
+      if (project.manifest case {'paths': List<Object?> zonPaths}) {
+        for (Object? entry in zonPaths) {
+          if (entry is! String) {
+            continue;
+          }
 
-        if (zon case {'paths': List<Object?> zonPaths}) {
-          for (Object? entry in zonPaths) {
-            if (entry is! String) {
-              continue;
-            }
+          // build.zig and build.zig.zon are already tracked above.
+          if (entry == 'build.zig' || entry == 'build.zig.zon') {
+            continue;
+          }
 
-            // build.zig and build.zig.zon are already tracked above.
-            if (entry == 'build.zig' || entry == 'build.zig.zon') {
-              continue;
-            }
+          String fullPath = path.join(project.directory.path, entry);
+          FileSystemEntityType type = FileSystemEntity.typeSync(fullPath);
 
-            String fullPath = path.join(zigDirectory, entry);
-            FileSystemEntityType type = FileSystemEntity.typeSync(fullPath);
+          if (type == FileSystemEntityType.file) {
+            output.dependencies.add(Uri.file(fullPath));
+          } else if (type == FileSystemEntityType.directory) {
+            List<FileSystemEntity> entities = Directory(
+              fullPath,
+            ).listSync(recursive: true);
 
-            if (type == FileSystemEntityType.file) {
-              output.dependencies.add(Uri.file(fullPath));
-            } else if (type == FileSystemEntityType.directory) {
-              List<FileSystemEntity> entities = Directory(
-                fullPath,
-              ).listSync(recursive: true);
-
-              for (FileSystemEntity entity in entities) {
-                if (entity is File) {
-                  output.dependencies.add(entity.uri);
-                }
+            for (FileSystemEntity entity in entities) {
+              if (entity is File) {
+                output.dependencies.add(entity.uri);
               }
             }
           }
