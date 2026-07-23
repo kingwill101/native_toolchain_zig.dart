@@ -1,7 +1,7 @@
 import 'dart:ffi';
 
-import 'package:cimport/ffi.g.dart';
 import 'package:ffi/ffi.dart';
+import 'ffi.g.dart';
 
 typedef CImportPoint = c_struct_CImportPoint;
 typedef CImportValue = c_union_CImportValue;
@@ -35,8 +35,15 @@ class CImportDemo {
       points[0] = cimport_point_make(1, 1);
       points[1] = cimport_point_make(2, 3);
 
-      var callback = Pointer.fromFunction<CImportFoldCallback>(_foldPoint, 0);
-      return cimport_fold_points(points, 2, callback, nullptr);
+      var callback = NativeCallable<CImportFoldCallback>.isolateLocal(
+        (CImportPoint point, Pointer<Void> _) => point.x + point.y,
+        exceptionalReturn: 0,
+      );
+      try {
+        return cimport_fold_points(points, 2, callback.nativeFunction, nullptr);
+      } finally {
+        callback.close();
+      }
     } finally {
       calloc.free(points);
     }
@@ -65,9 +72,5 @@ class CImportDemo {
     cimport_node_append(first, second);
     cimport_node_append(first, third);
     return first;
-  }
-
-  static int _foldPoint(CImportPoint point, Pointer<Void> _) {
-    return point.x + point.y;
   }
 }
