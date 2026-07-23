@@ -27,6 +27,9 @@
 //! them without having to understand Zig's comment syntax.
 const std = @import("std");
 const Ast = std.zig.Ast;
+const type_support = @import("zig_api_dump_types.zig");
+const canonicalizeTypeSource = type_support.canonicalizeTypeSource;
+const RawAliasDecl = type_support.RawAliasDecl;
 
 const Allocator = std.mem.Allocator;
 const CommentLines = []const []const u8;
@@ -136,13 +139,6 @@ const RawGlobalDecl = struct {
     comments: CommentLines = empty_comments,
 };
 
-/// First-pass alias metadata with scope kept for later type resolution.
-const RawAliasDecl = struct {
-    name: []const u8,
-    scope: []const u8,
-    target: []const u8,
-};
-
 /// Stateful extractor used for a single `main` invocation.
 ///
 /// Everything is allocated out of the caller-provided allocator, which is an
@@ -195,12 +191,10 @@ const Extractor = struct {
     fn collect(
         self: *Extractor,
         root_source_file: []const u8,
+        io: anytype,
     ) anyerror!Document {
-        const resolved_root = try std.fs.cwd().realpathAlloc(
-            self.allocator,
-            root_source_file,
-        );
-        try self.collectModule(resolved_root, "");
+        const resolved_root = try self.allocator.dupe(u8, root_source_file);
+        try self.collectModule(resolved_root, "", io);
         return self.finalize();
     }
 
@@ -213,6 +207,7 @@ const Extractor = struct {
         self: *Extractor,
         module_path: []const u8,
         scope: []const u8,
+        io: anytype,
     ) anyerror!void {
         const module_key = try moduleVisitKey(self.allocator, module_path, scope);
         if (self.visited_modules.contains(module_key)) {
@@ -230,11 +225,7 @@ const Extractor = struct {
             }
         }
 
-        const source = try std.fs.cwd().readFileAlloc(
-            self.allocator,
-            module_path,
-            1024 * 1024,
-        );
+        const source = try readFileAllocCompat(self.allocator, io, module_path);
         // `Ast.parse` expects a sentinel-terminated buffer.
         const source_z = try self.allocator.dupeZ(u8, source);
 
@@ -259,6 +250,7 @@ const Extractor = struct {
                 empty_comments
             else
                 try collectFileHeaderComments(self.allocator, source_z),
+            io,
         );
     }
 
@@ -276,6 +268,7 @@ const Extractor = struct {
         module_dir: []const u8,
         source: []const u8,
         module_header_comments: CommentLines,
+        io: anytype,
     ) anyerror!void {
         var fn_buffer: [1]Ast.Node.Index = undefined;
         var container_buffer: [2]Ast.Node.Index = undefined;
@@ -306,6 +299,7 @@ const Extractor = struct {
                     module_dir,
                     source,
                     pending_module_header_comments,
+                    io,
                 );
                 if (collected) {
                     pending_module_header_comments = empty_comments;
@@ -436,6 +430,7 @@ const Extractor = struct {
         module_dir: []const u8,
         source: []const u8,
         module_header_comments: CommentLines,
+        io: anytype,
     ) anyerror!bool {
         const name = tree.tokenSlice(var_decl.ast.mut_token + 1);
         const qualified_name = try qualifyName(self.allocator, scope, name);
@@ -494,7 +489,7 @@ const Extractor = struct {
                 self.allocator,
                 &.{ module_dir, import_path },
             );
-            try self.collectModule(resolved_path, qualified_name);
+            try self.collectModule(resolved_path, qualified_name, io);
             return false;
         }
 
@@ -504,7 +499,7 @@ const Extractor = struct {
                 &.{ module_dir, selection.import_path },
             );
             const import_scope = try self.scopeForDirectImport(resolved_path);
-            try self.collectModule(resolved_path, import_scope);
+            try self.collectModule(resolved_path, import_scope, io);
             const rewritten_target = try qualifyName(
                 self.allocator,
                 import_scope,
@@ -538,22 +533,15 @@ const Extractor = struct {
                 tree.tokenSlice(block_last_tok).len;
             const block_span = source[block_start..block_end];
             const c_source = (try cImportBodySource(self.allocator, block_span)) orelse return false;
-            const module_abs_dir = try std.fs.cwd().realpathAlloc(
-                self.allocator,
-                module_dir,
-            );
+            const module_abs_dir = try realpathAllocCompat(self.allocator, io, module_dir);
             const c_file_rel = ".zigchain_cimport_source.c";
-            {
-                var dir = try std.fs.cwd().openDir(module_dir, .{});
-                defer dir.close();
-                try dir.writeFile(.{ .sub_path = c_file_rel, .data = c_source });
-            }
+            try writeFileCompat(io, module_dir, c_file_rel, c_source);
             const c_file_abs = try std.fs.path.join(
                 self.allocator,
                 &.{ module_abs_dir, c_file_rel },
             );
 
-            const zig_source = runTranslateC(self.allocator, c_file_abs) catch |err| {
+            const zig_source = runTranslateC(self.allocator, c_file_abs, io) catch |err| {
                 std.debug.print(
                     "error: failed to translate @cImport C source: {s}\n",
                     .{@errorName(err)},
@@ -562,17 +550,13 @@ const Extractor = struct {
             };
 
             const zig_file_rel = ".zigchain_cimport.zig";
-            {
-                var dir = try std.fs.cwd().openDir(module_dir, .{});
-                defer dir.close();
-                try dir.writeFile(.{ .sub_path = zig_file_rel, .data = zig_source });
-            }
+            try writeFileCompat(io, module_dir, zig_file_rel, zig_source);
             const zig_file_abs = try std.fs.path.join(
                 self.allocator,
                 &.{ module_abs_dir, zig_file_rel },
             );
 
-            try self.collectModule(zig_file_abs, qualified_name);
+            try self.collectModule(zig_file_abs, qualified_name, io);
             return false;
         }
 
@@ -674,6 +658,7 @@ const Extractor = struct {
                 module_dir,
                 source,
                 empty_comments,
+                io,
             );
 
             return true;
@@ -1125,7 +1110,7 @@ fn lineSlice(source: []const u8, current_line_start: usize) []const u8 {
 /// This is deliberately permissive and is used after other helpers already
 /// decided that a line is allowed in the current context.
 fn normalizeCommentLine(raw_line: []const u8) ?[]const u8 {
-    const trimmed = std.mem.trimLeft(u8, raw_line, " \t");
+    const trimmed = trimLeftCompat(u8, raw_line, " \t");
 
     if (std.mem.startsWith(u8, trimmed, "///") or
         std.mem.startsWith(u8, trimmed, "//!"))
@@ -1145,7 +1130,7 @@ fn normalizeCommentLine(raw_line: []const u8) ?[]const u8 {
 /// `//!` is excluded here because it semantically describes a file/module, not a
 /// declaration.
 fn normalizeLeadingCommentLine(raw_line: []const u8) ?[]const u8 {
-    const trimmed = std.mem.trimLeft(u8, raw_line, " \t");
+    const trimmed = trimLeftCompat(u8, raw_line, " \t");
 
     if (std.mem.startsWith(u8, trimmed, "///")) {
         return normalizeCommentText(trimmed[3..]);
@@ -1165,7 +1150,7 @@ fn normalizeLeadingCommentLine(raw_line: []const u8) ?[]const u8 {
 /// `///` is excluded so declaration docs at the top of a file are not mistaken
 /// for library docs.
 fn normalizeFileHeaderCommentLine(raw_line: []const u8) ?[]const u8 {
-    const trimmed = std.mem.trimLeft(u8, raw_line, " \t");
+    const trimmed = trimLeftCompat(u8, raw_line, " \t");
 
     if (std.mem.startsWith(u8, trimmed, "//!")) {
         return normalizeCommentText(trimmed[3..]);
@@ -1187,7 +1172,7 @@ fn normalizeCommentText(raw_text: []const u8) []const u8 {
         raw_text[1..]
     else
         raw_text;
-    return std.mem.trimRight(u8, without_prefix_space, " \t\r");
+    return trimRightCompat(u8, without_prefix_space, " \t\r");
 }
 
 /// Returns whether a trailing comment starts after only structural punctuation.
@@ -1364,6 +1349,7 @@ fn rewriteIncludeCalls(allocator: Allocator, raw: []const u8) anyerror![]const u
             }
             if (depth != 0) return error.UnmatchedParenInInclude;
             try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
+            if (pos < raw.len and raw[pos] == ';') pos += 1;
         } else if (std.mem.startsWith(u8, raw[pos..], "@include(")) {
             try result.appendSlice(allocator, "#include ");
             pos += "@include(".len;
@@ -1378,6 +1364,7 @@ fn rewriteIncludeCalls(allocator: Allocator, raw: []const u8) anyerror![]const u
             }
             if (depth != 0) return error.UnmatchedParenInInclude;
             try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
+            if (pos < raw.len and raw[pos] == ';') pos += 1;
         } else {
             try result.append(allocator, raw[pos]);
             pos += 1;
@@ -1437,6 +1424,7 @@ fn sysIncludePaths() []const []const u8 {
 fn runTranslateC(
     allocator: Allocator,
     c_source_file: []const u8,
+    io: anytype,
 ) anyerror![]const u8 {
     // Build the argument list with auto-discovered include paths.
     var args = std.ArrayList([]const u8).empty;
@@ -1453,18 +1441,18 @@ fn runTranslateC(
         // when sources are under `src/` and headers under `include/`).
         if (std.fs.path.dirname(c_dir)) |parent_dir| {
             const sibling_include = try std.fs.path.join(allocator, &.{ parent_dir, "include" });
-            if (std.fs.cwd().access(sibling_include, .{})) {
+            if (pathExistsCompat(io, sibling_include)) {
                 try args.append(allocator, "-I");
                 try args.append(allocator, sibling_include);
-            } else |_| {}
+            }
         }
 
         // Check for `include/` in the source file's directory.
         const local_include = try std.fs.path.join(allocator, &.{ c_dir, "include" });
-        if (std.fs.cwd().access(local_include, .{})) {
+        if (pathExistsCompat(io, local_include)) {
             try args.append(allocator, "-I");
             try args.append(allocator, local_include);
-        } else |_| {}
+        }
     }
 
     // Add standard system include paths so headers like <assert.h> can
@@ -1476,6 +1464,29 @@ fn runTranslateC(
     }
 
     try args.append(allocator, c_source_file);
+
+    if (comptime @hasDecl(std.process, "run")) {
+        const result = try std.process.run(allocator, io, .{
+            .argv = args.items,
+        });
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        switch (result.term) {
+            .exited => |code| {
+                if (code != 0) {
+                    std.debug.print(
+                        "zig translate-c exited with code {d}:\n{s}\n",
+                        .{ code, result.stderr },
+                    );
+                    return error.TranslateCFailed;
+                }
+            },
+            else => return error.TranslateCFailed,
+        }
+
+        return try allocator.dupe(u8, result.stdout);
+    }
 
     var child = std.process.Child.init(args.items, allocator);
     child.stdout_behavior = .Pipe;
@@ -1500,6 +1511,72 @@ fn runTranslateC(
     }
 
     return stdout;
+}
+
+fn readFileAllocCompat(
+    allocator: Allocator,
+    io: anytype,
+    file_path: []const u8,
+) anyerror![]u8 {
+    if (comptime @hasDecl(std.Io, "Dir")) {
+        const dir = std.Io.Dir.cwd();
+        return dir.readFileAlloc(io, file_path, allocator, .unlimited);
+    }
+
+    return std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024);
+}
+
+fn realpathAllocCompat(
+    allocator: Allocator,
+    io: anytype,
+    file_path: []const u8,
+) anyerror![]u8 {
+    _ = io;
+    return std.fs.path.resolve(allocator, &.{file_path});
+}
+
+fn pathExistsCompat(io: anytype, file_path: []const u8) bool {
+    if (comptime @hasDecl(std.Io, "Dir")) {
+        std.Io.Dir.cwd().access(io, file_path, .{}) catch return false;
+        return true;
+    }
+
+    std.fs.cwd().access(file_path, .{}) catch return false;
+    return true;
+}
+
+fn writeFileCompat(
+    io: anytype,
+    dir_path: []const u8,
+    sub_path: []const u8,
+    data: []const u8,
+) anyerror!void {
+    if (comptime @hasDecl(std.Io, "Dir")) {
+        const dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{});
+        defer std.Io.Dir.close(dir, io);
+        try dir.writeFile(io, .{ .sub_path = sub_path, .data = data });
+        return;
+    }
+
+    var dir = try std.fs.cwd().openDir(dir_path, .{});
+    defer dir.close();
+    try dir.writeFile(.{ .sub_path = sub_path, .data = data });
+}
+
+fn trimLeftCompat(comptime T: type, slice: []const T, chars: []const T) []const T {
+    if (comptime @hasDecl(std.mem, "trimLeft")) {
+        return std.mem.trimLeft(T, slice, chars);
+    }
+
+    return std.mem.trimStart(T, slice, chars);
+}
+
+fn trimRightCompat(comptime T: type, slice: []const T, chars: []const T) []const T {
+    if (comptime @hasDecl(std.mem, "trimRight")) {
+        return std.mem.trimRight(T, slice, chars);
+    }
+
+    return std.mem.trimEnd(T, slice, chars);
 }
 
 /// Sanitizes a filename stem into a namespace fragment safe for qualified names.
@@ -1530,375 +1607,14 @@ fn sanitizeScopeFragment(
     return buffer.toOwnedSlice(allocator);
 }
 
-// Type canonicalization.
-//
-// The generator prefers stable, fully qualified type spellings. Collection keeps
-// original source snippets, then these helpers normalize whitespace, preserve
-// pointer shape, and resolve bare identifiers relative to the scope in which
-// they appeared.
-
-/// Canonicalizes a raw type source string into the spelling emitted in JSON.
-///
-/// Arrays and other bracket-prefixed types that are not pointer-like are left as
-/// normalized source because they already carry enough information without scope
-/// lookup.
-fn canonicalizeTypeSource(
-    allocator: Allocator,
-    source: []const u8,
-    scope: []const u8,
-    known_types: *const std.StringHashMap(void),
-    raw_aliases: *const std.StringHashMap(RawAliasDecl),
-    resolved_aliases: *std.StringHashMap([]const u8),
-    resolving_aliases: *std.StringHashMap(void),
-) anyerror![]const u8 {
-    const normalized = try normalizeTypeSource(allocator, source);
-
-    if (std.mem.startsWith(u8, normalized, "[*c]")) {
-        return canonicalizePointerType(
-            allocator,
-            normalized["[*c]".len..],
-            scope,
-            known_types,
-            raw_aliases,
-            resolved_aliases,
-            resolving_aliases,
-            .c,
-        );
-    }
-
-    if (std.mem.startsWith(u8, normalized, "[*")) {
-        return canonicalizeManyPointerType(
-            allocator,
-            normalized,
-            scope,
-            known_types,
-            raw_aliases,
-            resolved_aliases,
-            resolving_aliases,
-        );
-    }
-
-    if (std.mem.startsWith(u8, normalized, "*")) {
-        return canonicalizePointerType(
-            allocator,
-            normalized["*".len..],
-            scope,
-            known_types,
-            raw_aliases,
-            resolved_aliases,
-            resolving_aliases,
-            .one,
-        );
-    }
-
-    if (normalized.len != 0 and normalized[0] == '[') {
-        return normalized;
-    }
-
-    if (isPrimitiveType(normalized)) {
-        return normalized;
-    }
-
-    if (try resolveQualifiedTypeName(
-        allocator,
-        scope,
-        normalized,
-        known_types,
-        raw_aliases,
-        resolved_aliases,
-        resolving_aliases,
-    )) |resolved_name| {
-        return resolved_name;
-    }
-
-    return normalized;
-}
-
-/// The pointer spellings we currently normalize specially.
-const PointerKind = enum { one, c };
-
-/// Canonicalizes `*T` and `[*c]T` style pointers while recursively resolving the
-/// child type.
-fn canonicalizePointerType(
-    allocator: Allocator,
-    source: []const u8,
-    scope: []const u8,
-    known_types: *const std.StringHashMap(void),
-    raw_aliases: *const std.StringHashMap(RawAliasDecl),
-    resolved_aliases: *std.StringHashMap([]const u8),
-    resolving_aliases: *std.StringHashMap(void),
-    kind: PointerKind,
-) anyerror![]const u8 {
-    const trimmed = std.mem.trim(u8, source, " ");
-    const is_const = std.mem.startsWith(u8, trimmed, "const ");
-    const child_source = if (is_const)
-        trimmed["const ".len..]
-    else
-        trimmed;
-    const child = try canonicalizeTypeSource(
-        allocator,
-        child_source,
-        scope,
-        known_types,
-        raw_aliases,
-        resolved_aliases,
-        resolving_aliases,
-    );
-
-    return switch (kind) {
-        .one => std.fmt.allocPrint(
-            allocator,
-            "*{s}{s}",
-            .{ if (is_const) "const " else "", child },
-        ),
-        .c => std.fmt.allocPrint(
-            allocator,
-            "[*c] {s}{s}",
-            .{ if (is_const) "const " else "", child },
-        ),
-    };
-}
-
-/// Canonicalizes `[*]T` and `[*: sentinel]T` style many-pointers.
-///
-/// If the bracket header is not one of the patterns we understand, the original
-/// normalized source is returned unchanged rather than guessing.
-fn canonicalizeManyPointerType(
-    allocator: Allocator,
-    source: []const u8,
-    scope: []const u8,
-    known_types: *const std.StringHashMap(void),
-    raw_aliases: *const std.StringHashMap(RawAliasDecl),
-    resolved_aliases: *std.StringHashMap([]const u8),
-    resolving_aliases: *std.StringHashMap(void),
-) anyerror![]const u8 {
-    const close_index = std.mem.indexOfScalar(u8, source, ']') orelse
-        return source;
-    const header = source[2..close_index];
-    const after_bracket = std.mem.trim(u8, source[close_index + 1 ..], " ");
-    const is_const = std.mem.startsWith(u8, after_bracket, "const ");
-    const child_source = if (is_const)
-        after_bracket["const ".len..]
-    else
-        after_bracket;
-    const child = try canonicalizeTypeSource(
-        allocator,
-        child_source,
-        scope,
-        known_types,
-        raw_aliases,
-        resolved_aliases,
-        resolving_aliases,
-    );
-
-    if (header.len == 0) {
-        return std.fmt.allocPrint(
-            allocator,
-            "[*] {s}{s}",
-            .{ if (is_const) "const " else "", child },
-        );
-    }
-
-    if (header[0] != ':') {
-        return source;
-    }
-
-    const sentinel = std.mem.trim(u8, header[1..], " ");
-    return std.fmt.allocPrint(
-        allocator,
-        "[*: {s}] {s}{s}",
-        .{ sentinel, if (is_const) "const " else "", child },
-    );
-}
-
-/// Collapses runs of whitespace into single spaces so semantically identical
-/// type spellings compare equal during later resolution.
-fn normalizeTypeSource(
-    allocator: Allocator,
-    source: []const u8,
-) anyerror![]const u8 {
-    var buffer = std.ArrayList(u8).empty;
-    var pending_space = false;
-
-    for (source) |char| {
-        if (std.ascii.isWhitespace(char)) {
-            pending_space = buffer.items.len != 0;
-            continue;
-        }
-
-        if (pending_space) {
-            try buffer.append(allocator, ' ');
-            pending_space = false;
-        }
-
-        try buffer.append(allocator, char);
-    }
-
-    return buffer.toOwnedSlice(allocator);
-}
-
-/// Resolves an unqualified type name against the current lexical scope.
-///
-/// The search walks outward from `scope` to each parent scope and finally to the
-/// top level, mirroring how a reader would interpret nested Zig type names.
-fn resolveQualifiedTypeName(
-    allocator: Allocator,
-    scope: []const u8,
-    source: []const u8,
-    known_types: *const std.StringHashMap(void),
-    raw_aliases: *const std.StringHashMap(RawAliasDecl),
-    resolved_aliases: *std.StringHashMap([]const u8),
-    resolving_aliases: *std.StringHashMap(void),
-) anyerror!?[]const u8 {
-    var current_scope = scope;
-    while (true) {
-        const candidate = if (current_scope.len == 0)
-            try allocator.dupe(u8, source)
-        else
-            try std.fmt.allocPrint(
-                allocator,
-                "{s}.{s}",
-                .{ current_scope, source },
-            );
-        if (resolved_aliases.get(candidate)) |resolved| {
-            return resolved;
-        }
-        if (known_types.contains(candidate)) {
-            return candidate;
-        }
-        if (raw_aliases.contains(candidate)) {
-            if (try resolveAliasTarget(
-                allocator,
-                candidate,
-                known_types,
-                raw_aliases,
-                resolved_aliases,
-                resolving_aliases,
-            )) |resolved| {
-                return resolved;
-            }
-        }
-
-        if (current_scope.len == 0) {
-            break;
-        }
-
-        current_scope = parentScope(current_scope);
-    }
-
-    return null;
-}
-
-/// Resolves a collected alias into the canonical type spelling it represents.
-///
-/// Alias resolution is recursive so chains such as `const A = B; const B =
-/// abi.Type;` collapse to the reachable underlying type before the JSON
-/// document is emitted.
-fn resolveAliasTarget(
-    allocator: Allocator,
-    alias_name: []const u8,
-    known_types: *const std.StringHashMap(void),
-    raw_aliases: *const std.StringHashMap(RawAliasDecl),
-    resolved_aliases: *std.StringHashMap([]const u8),
-    resolving_aliases: *std.StringHashMap(void),
-) anyerror!?[]const u8 {
-    if (resolved_aliases.get(alias_name)) |resolved| {
-        return resolved;
-    }
-
-    const alias_decl = raw_aliases.get(alias_name) orelse return null;
-    if (resolving_aliases.contains(alias_name)) {
-        return error.CyclicTypeAlias;
-    }
-
-    try resolving_aliases.put(alias_name, {});
-    defer _ = resolving_aliases.remove(alias_name);
-
-    const resolved = try canonicalizeTypeSource(
-        allocator,
-        alias_decl.target,
-        alias_decl.scope,
-        known_types,
-        raw_aliases,
-        resolved_aliases,
-        resolving_aliases,
-    );
-    try resolved_aliases.put(alias_name, resolved);
-    return resolved;
-}
-
-/// Returns the enclosing scope of `foo.bar.baz`, or `""` for a top-level name.
-fn parentScope(scope: []const u8) []const u8 {
-    const last_dot = std.mem.lastIndexOfScalar(u8, scope, '.') orelse
-        return "";
-    return scope[0..last_dot];
-}
-
-/// Primitive spellings are emitted as-is because they never refer to user
-/// declarations.
-fn isPrimitiveType(source: []const u8) bool {
-    inline for (primitive_types) |primitive| {
-        if (std.mem.eql(u8, source, primitive)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/// Primitive and builtin ABI spellings that do not participate in scope lookup.
-const primitive_types = [_][]const u8{
-    "anyopaque",
-    "bool",
-    "c_char",
-    "c_int",
-    "c_long",
-    "c_longdouble",
-    "c_longlong",
-    "c_short",
-    "c_uint",
-    "c_ulong",
-    "c_ulonglong",
-    "c_ushort",
-    "f32",
-    "f64",
-    "i16",
-    "i32",
-    "i64",
-    "i8",
-    "isize",
-    "u16",
-    "u32",
-    "u64",
-    "u8",
-    "usize",
-    "void",
-};
-
-/// CLI entrypoint used by the Dart generator.
+/// Shared metadata extraction entrypoint used by versioned CLI wrappers.
 ///
 /// All allocations live for the lifetime of the process, which keeps the rest
 /// of the code straightforward and is acceptable because this script runs as a
 /// short-lived helper.
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const allocator = arena_state.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    if (args.len != 2) {
-        std.debug.print(
-            "usage: zig run zig_api_dump.zig -- <root-source-file>\\n",
-            .{},
-        );
-        return error.InvalidArguments;
-    }
-
+pub fn extractDocument(allocator: Allocator, root_source_file: []const u8, io: anytype) !Document {
     var extractor = Extractor.init(allocator);
-    const document = try extractor.collect(args[1]);
-
-    const stdout = std.fs.File.stdout().deprecatedWriter();
-    try stdout.print("{f}\n", .{std.json.fmt(document, .{})});
+    return try extractor.collect(root_source_file, io);
 }
 
 const TestFile = struct {
@@ -1990,7 +1706,7 @@ fn collectTestDocument(
     );
 
     var extractor = Extractor.init(allocator);
-    return extractor.collect(absolute_root_source_file);
+    return extractor.collect(absolute_root_source_file, {});
 }
 
 test "comment helpers normalize file header, leading, and trailing comments" {
@@ -2461,7 +2177,7 @@ test "runTranslateC translates a simple C header" {
     const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "test.c" });
     try tmp.dir.writeFile(.{ .sub_path = "test.c", .data = "#include \"simple.h\"\n" });
 
-    const zig_source = try runTranslateC(allocator, c_abs);
+    const zig_source = try runTranslateC(allocator, c_abs, {});
     try std.testing.expect(std.mem.indexOf(u8, zig_source, "Dart_Port_DL") != null);
 }
 
@@ -2489,7 +2205,7 @@ test "collectModule discovers aliases from a simple module under a scope" {
     );
 
     var extractor = Extractor.init(allocator);
-    try extractor.collectModule(module_abs_path, "c");
+    try extractor.collectModule(module_abs_path, "c", {});
 
     try std.testing.expectEqual(@as(usize, 1), extractor.raw_aliases.items.len);
     try std.testing.expectEqualStrings(
@@ -2527,7 +2243,7 @@ test "Extractor.collect resolves @cImport types from fixture directory" {
     const root_abs = try std.fs.path.join(allocator, &.{ temp_abs, "lib.zig" });
 
     var extractor = Extractor.init(allocator);
-    const document = try extractor.collect(root_abs);
+    const document = try extractor.collect(root_abs, {});
 
     // translate-c should resolve C typedefs to their Zig representations.
     // c.Dart_Port_DL → c_long, c.Dart_Handle → ?*anyopaque, c.Dart_Status → c_int

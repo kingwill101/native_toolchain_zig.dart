@@ -73,13 +73,74 @@ export fn make_point(x: f32, y: f32) Point {
     expect(generated, contains('green(2),'));
     expect(
       generated,
-      contains("@ffi.Native<ffi.Int Function()>(symbol: 'favorite_color')"),
+      contains("@ffi.Native<ffi.Int32 Function()>(symbol: 'favorite_color')"),
     );
     expect(generated, contains('external int _favorite_colorRaw();'));
     expect(generated, contains('Color favorite_color() => '));
     expect(generated, contains('Color.fromValue(_favorite_colorRaw());'));
     expect(generated, contains('final class Point extends ffi.Struct {'));
   });
+
+  test(
+    'generateBindings emits fixed-size array fields with valid FFI syntax',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'native_toolchain_zig_array_bindings_test_',
+      );
+      addTearDown(() async {
+        if (tempDirectory.existsSync()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await File(
+        path.join(tempDirectory.path, 'pubspec.yaml'),
+      ).writeAsString('name: binding_test_package\n');
+      await Directory(
+        path.join(tempDirectory.path, 'zig', 'src'),
+      ).create(recursive: true);
+      await File(
+        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+      ).writeAsString('''
+const Point = extern struct {
+    x: i32,
+    y: i32,
+};
+
+const Packet = extern struct {
+    bytes: [16]u8,
+    points: [2]Point,
+};
+
+export fn make_packet() Packet {
+    return .{
+        .bytes = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+        .points = .{
+            .{ .x = 1, .y = 2 },
+            .{ .x = 3, .y = 4 },
+        },
+    };
+}
+''');
+
+      await generateBindings(
+        ZigBindingsOptions(
+          packageRoot: tempDirectory.path,
+          output: 'lib/src/ffi.g.dart',
+        ),
+      );
+
+      final generated = await File(
+        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+      ).readAsString();
+
+      expect(generated, contains('final class Packet extends ffi.Struct {'));
+      expect(generated, contains('@ffi.Array(16)'));
+      expect(generated, contains('external ffi.Array<ffi.Uint8> bytes;'));
+      expect(generated, contains('@ffi.Array(2)'));
+      expect(generated, contains('external ffi.Array<Point> points;'));
+    },
+  );
 
   test('generateBindings carries comments into generated Dart', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -248,13 +309,13 @@ pub const exports = struct {
       expect(generated, contains('api_abi_Color get color =>'));
       expect(
         generated,
-        contains("@ffi.Native<ffi.Int Function()>(symbol: 'favorite_color')"),
+        contains("@ffi.Native<ffi.Int32 Function()>(symbol: 'favorite_color')"),
       );
       expect(generated, contains('api_abi_Color favorite_color() => '));
       expect(
         generated,
         contains(
-          "@ffi.Native<api_abi_Point Function(ffi.Float, ffi.Float, ffi.Int)>(symbol: 'make_point')",
+          "@ffi.Native<api_abi_Point Function(ffi.Float, ffi.Float, ffi.Int32)>(symbol: 'make_point')",
         ),
       );
       expect(

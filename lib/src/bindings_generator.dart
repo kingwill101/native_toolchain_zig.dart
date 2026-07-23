@@ -180,12 +180,14 @@ Future<GeneratedBindingsResult> generateBindingsSource(
 
 Future<_ZigApiDescription> _extractApiDescription(File rootSourceFile) async {
   final helperScriptPath = await _helperScriptPath();
-  final metadataJson = await _runProcess('zig', [
-    'run',
-    helperScriptPath,
-    '--',
-    rootSourceFile.path,
-  ]);
+  final metadataJson = await _runProcess(
+    'zig',
+    ['run', helperScriptPath],
+    environment: {
+      ...Platform.environment,
+      'NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE': rootSourceFile.path,
+    },
+  );
 
   final decoded = jsonDecode(metadataJson);
   if (decoded is! Map<String, Object?>) {
@@ -198,17 +200,46 @@ Future<_ZigApiDescription> _extractApiDescription(File rootSourceFile) async {
 }
 
 Future<String> _helperScriptPath() async {
+  final zigVersion = await _zigVersion();
+  final helperName = _isAtLeastZigVersion(zigVersion, 0, 16, 0)
+      ? 'zig_api_dump_016.zig'
+      : 'zig_api_dump_015.zig';
+
   final helperUri = await Isolate.resolvePackageUri(
-    Uri.parse('package:native_toolchain_zig/src/zig_api_dump.zig'),
+    Uri.parse('package:native_toolchain_zig/src/zig/$helperName'),
   );
 
   if (helperUri == null) {
     throw StateError(
-      'Could not resolve package:native_toolchain_zig/src/zig_api_dump.zig.',
+      'Could not resolve package:native_toolchain_zig/src/zig/$helperName.',
     );
   }
 
   return path.fromUri(helperUri);
+}
+
+Future<String> _zigVersion() async {
+  return (await _runProcess('zig', ['version'])).trim();
+}
+
+bool _isAtLeastZigVersion(String version, int major, int minor, int patch) {
+  final parts = version.split('.');
+  if (parts.length < 3) {
+    return false;
+  }
+
+  final currentMajor = int.tryParse(parts[0]) ?? 0;
+  final currentMinor = int.tryParse(parts[1]) ?? 0;
+  final currentPatch = int.tryParse(parts[2].split('-').first) ?? 0;
+
+  if (currentMajor != major) {
+    return currentMajor > major;
+  }
+  if (currentMinor != minor) {
+    return currentMinor > minor;
+  }
+
+  return currentPatch >= patch;
 }
 
 Directory _resolveZigDirectory(ZigBindingsOptions options) {
@@ -384,11 +415,13 @@ Future<String> _runProcess(
   String executable,
   List<String> arguments, {
   String? workingDirectory,
+  Map<String, String>? environment,
 }) async {
   final result = await Process.run(
     executable,
     arguments,
     workingDirectory: workingDirectory,
+    environment: environment,
   );
 
   if (result.exitCode != 0) {
@@ -466,14 +499,35 @@ final class _ZigApiDescription {
     for (final type in types) type.name: type,
   };
 
+  _ZigTypeDecl? typeDeclForName(String name) {
+    for (final candidateName in [
+      'c_struct_$name',
+      'c_union_$name',
+      'c_enum_$name',
+    ]) {
+      final candidate = typesByName[candidateName];
+      if (candidate != null) {
+        return candidate;
+      }
+    }
+
+    for (final type in types) {
+      if (type.name != name && type.name.endsWith('_$name')) {
+        return type;
+      }
+    }
+
+    return typesByName[name];
+  }
+
   List<_ZigTypeDecl> get reachableTypes {
     final reachable = <String>{};
 
     void visitType(_ZigTypeRef type) {
       switch (type) {
         case _ZigNamedTypeRef():
-          final decl = typesByName[type.name];
-          if (decl == null || !reachable.add(type.name)) {
+          final decl = typeDeclForName(type.name);
+          if (decl == null || !reachable.add(decl.name)) {
             return;
           }
 
@@ -1078,7 +1132,9 @@ final class _DartBindingEmitter {
     }
 
     for (final opaqueName in _opaqueTypes) {
-      if (reachableTypes.any((t) => t.name == opaqueName)) continue;
+      if (reachableTypes.any((t) => t.name == opaqueName)) {
+        continue;
+      }
       _writeOpaqueType(buffer, opaqueName);
       buffer.writeln();
     }
@@ -1381,7 +1437,7 @@ final class _DartBindingEmitter {
 
   _ZigTypeRef _rawType(_ZigTypeRef type) {
     if (type is _ZigNamedTypeRef) {
-      final decl = api.typesByName[type.name];
+      final decl = api.typeDeclForName(type.name);
       if (decl != null && decl.kind == _ZigContainerKind.enumType) {
         final tagType = decl.tagType;
         if (tagType == null) {
@@ -1396,7 +1452,7 @@ final class _DartBindingEmitter {
   bool _isDirectEnumType(_ZigTypeRef type) {
     return switch (type) {
       _ZigNamedTypeRef(:final name) =>
-        api.typesByName[name]?.kind == _ZigContainerKind.enumType,
+        api.typeDeclForName(name)?.kind == _ZigContainerKind.enumType,
       _ => false,
     };
   }
@@ -1410,16 +1466,16 @@ final class _DartBindingEmitter {
         }
         return spec.dartType;
       case _ZigNamedTypeRef(:final name):
-        final decl = api.typesByName[name];
+        final decl = api.typeDeclForName(name);
         if (decl == null) {
           _opaqueTypes.add(name);
           return _safeTypeIdentifier(name);
         }
-        return _safeTypeIdentifier(name);
+        return _safeTypeIdentifier(decl.name);
       case _ZigPointerTypeRef(:final child):
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
-      case _ZigArrayTypeRef(:final count, :final child):
-        return 'ffi.Array<$count, ${_nativeType(child)}>';
+      case _ZigArrayTypeRef(:final child):
+        return 'ffi.Array<${_nativeType(child)}>';
     }
   }
 
@@ -1432,7 +1488,7 @@ final class _DartBindingEmitter {
         }
         return spec.nativeType;
       case _ZigNamedTypeRef(:final name):
-        final decl = api.typesByName[name];
+        final decl = api.typeDeclForName(name);
         if (decl == null) {
           _opaqueTypes.add(name);
           return _safeTypeIdentifier(name);
@@ -1446,11 +1502,11 @@ final class _DartBindingEmitter {
           }
           return _nativeType(tagType);
         }
-        return _safeTypeIdentifier(name);
+        return _safeTypeIdentifier(decl.name);
       case _ZigPointerTypeRef(:final child):
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
-      case _ZigArrayTypeRef(:final count, :final child):
-        return 'ffi.Array<$count, ${_nativeType(child)}>';
+      case _ZigArrayTypeRef(:final child):
+        return 'ffi.Array<${_nativeType(child)}>';
     }
   }
 
@@ -1463,7 +1519,7 @@ final class _DartBindingEmitter {
         }
         return spec.fieldAnnotation;
       case _ZigNamedTypeRef(:final name):
-        final decl = api.typesByName[name];
+        final decl = api.typeDeclForName(name);
         if (decl == null) {
           throw StateError('Unsupported Zig named type: $name');
         }
@@ -1480,7 +1536,27 @@ final class _DartBindingEmitter {
       case _ZigPointerTypeRef():
         return null;
       case _ZigArrayTypeRef():
-        return null;
+        final dimensions = _arrayDimensions(type);
+        final dims = dimensions.join(', ');
+        if (dimensions.length <= 5) {
+          return '@ffi.Array($dims)';
+        }
+        return '@ffi.Array.multi([${dimensions.join(', ')}])';
+    }
+  }
+
+  List<int> _arrayDimensions(_ZigTypeRef type) {
+    final dimensions = <int>[];
+    var current = type;
+
+    while (true) {
+      switch (current) {
+        case _ZigArrayTypeRef(:final count, :final child):
+          dimensions.add(count);
+          current = child;
+        default:
+          return dimensions;
+      }
     }
   }
 }
