@@ -101,6 +101,7 @@ pub const struct_CImportPoint = extern struct {
     y: i32 = 0,
     pub const cimport_sum_points = __root.cimport_sum_points;
     pub const cimport_fold_points = __root.cimport_fold_points;
+    pub const cimport_visit_points = __root.cimport_visit_points;
     pub const points = __root.cimport_sum_points;
 };
 pub const CImportPoint = struct_CImportPoint;
@@ -144,7 +145,7 @@ pub const struct_CImportTable = extern struct {
 };
 pub const CImportTable = struct_CImportTable;
 pub const CImportFoldFn = ?*const fn (point: CImportPoint, user: ?*anyopaque) callconv(.c) i32;
-pub const CImportVisitFn = ?*const fn (packet: [*c]const CImportPacket, user: ?*anyopaque) callconv(.c) void;
+pub const CImportVisitFn = ?*const fn (point: [*c]const CImportPoint, user: ?*anyopaque) callconv(.c) void;
 pub const struct_CImportAccumulator = extern struct {
     fold: CImportFoldFn = null,
     user: ?*anyopaque = null,
@@ -162,6 +163,7 @@ pub extern fn cimport_node_count(node: [*c]const CImportNode) usize;
 pub extern fn cimport_node_sum(node: [*c]const CImportNode) i64;
 pub extern fn cimport_sum_points(points: [*c]const CImportPoint, len: usize) i64;
 pub extern fn cimport_fold_points(points: [*c]const CImportPoint, len: usize, fold: CImportFoldFn, user: ?*anyopaque) i32;
+pub extern fn cimport_visit_points(points: [*c]const CImportPoint, len: usize, visit: CImportVisitFn, user: ?*anyopaque) void;
 pub extern fn cimport_kind_name(kind: CImportKind) [*c]const u8;
 pub extern fn cimport_packet_checksum(packet: CImportPacket) usize;
 

@@ -21,6 +21,7 @@ int64_t cimport_node_sum(const CImportNode *node);
 
 int64_t cimport_sum_points(const CImportPoint *points, size_t len);
 int32_t cimport_fold_points(const CImportPoint *points, size_t len, CImportFoldFn fold, void *user);
+void cimport_visit_points(const CImportPoint *points, size_t len, CImportVisitFn visit, void *user);
 const char *cimport_kind_name(CImportKind kind);
 size_t cimport_packet_checksum(CImportPacket packet);
 

@@ -7,7 +7,7 @@
 #include "cimport_types.h"
 
 typedef int32_t (*CImportFoldFn)(CImportPoint point, void *user);
-typedef void (*CImportVisitFn)(const CImportPacket *packet, void *user);
+typedef void (*CImportVisitFn)(const CImportPoint *point, void *user);
 
 typedef struct CImportAccumulator {
     CImportFoldFn fold;
