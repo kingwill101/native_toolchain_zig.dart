@@ -51,7 +51,7 @@ jobs:
         run: dart analyze --fatal-infos
 
       - name: Run Zig metadata dumper tests
-        run: zig test lib/src/zig_api_dump.zig
+        run: zig test lib/src/zig/zig_api_dump.zig
 
       - name: Run math example Zig tests
         run: zig build test
