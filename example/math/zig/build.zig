@@ -32,6 +32,8 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.addTest(.{
         .root_module = root_module,
+        .use_llvm = true,
+        .use_lld = true,
     });
 
     const run_tests = b.addRunArtifact(tests);
