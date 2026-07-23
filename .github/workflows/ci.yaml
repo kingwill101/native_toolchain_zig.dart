@@ -65,5 +65,9 @@ jobs:
         run: dart run bindings:main
         working-directory: example/bindings
 
+      - name: Run cImport example
+        run: dart run cimport:main
+        working-directory: example/cimport
+
       - name: Run tests
         run: dart test -P ci
