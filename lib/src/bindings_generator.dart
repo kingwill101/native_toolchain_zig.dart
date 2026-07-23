@@ -550,6 +550,11 @@ final class _ZigApiDescription {
           visitType(type.child);
         case _ZigArrayTypeRef():
           visitType(type.child);
+        case _ZigFunctionTypeRef(:final parameters, :final returnType):
+          visitType(returnType);
+          for (final parameter in parameters) {
+            visitType(parameter);
+          }
         case _ZigPrimitiveTypeRef():
           break;
       }
@@ -816,6 +821,16 @@ final class _ZigArrayTypeRef extends _ZigTypeRef {
   final _ZigTypeRef child;
 }
 
+final class _ZigFunctionTypeRef extends _ZigTypeRef {
+  const _ZigFunctionTypeRef({
+    required this.parameters,
+    required this.returnType,
+  });
+
+  final List<_ZigTypeRef> parameters;
+  final _ZigTypeRef returnType;
+}
+
 _ZigTypeRef _parseZigTypeRef(String source) {
   final normalized = _normalizeTypeSource(source);
 
@@ -894,13 +909,114 @@ _ZigTypeRef _parseZigTypeRef(String source) {
     return _ZigPrimitiveTypeRef(normalized);
   }
 
-  // Function pointer types: fn(...) callconv(.c) T
-  // Treat them as opaque pointers.
-  if (normalized.startsWith('fn ')) {
-    return _ZigPrimitiveTypeRef('fn_pointer');
+  final functionType = _tryParseFunctionType(normalized, source);
+  if (functionType != null) {
+    return functionType;
   }
 
   return _ZigNamedTypeRef(normalized);
+}
+
+_ZigTypeRef? _tryParseFunctionType(String normalized, String source) {
+  if (!normalized.startsWith('fn')) {
+    return null;
+  }
+
+  final openParen = normalized.indexOf('(');
+  if (openParen == -1 || normalized.substring(0, openParen).trim() != 'fn') {
+    return null;
+  }
+
+  final closeParen = _findMatchingParen(normalized, openParen);
+  if (closeParen == -1) {
+    throw StateError('Malformed function pointer type: $source');
+  }
+
+  final paramsSource = normalized.substring(openParen + 1, closeParen).trim();
+  var remainder = normalized.substring(closeParen + 1).trim();
+
+  if (remainder.startsWith('callconv(')) {
+    final callconvClose = remainder.indexOf(')');
+    if (callconvClose == -1) {
+      throw StateError('Malformed function pointer type: $source');
+    }
+    remainder = remainder.substring(callconvClose + 1).trim();
+  }
+
+  if (remainder.isEmpty) {
+    throw StateError('Missing function pointer return type: $source');
+  }
+
+  final parameters = <_ZigTypeRef>[];
+  if (paramsSource.isNotEmpty) {
+    for (final paramSource in _splitTopLevelCommaSeparated(paramsSource)) {
+      final trimmed = paramSource.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+      final colon = trimmed.indexOf(':');
+      final typeSource = colon == -1
+          ? trimmed
+          : trimmed.substring(colon + 1).trim();
+      parameters.add(_parseZigTypeRef(typeSource));
+    }
+  }
+
+  return _ZigFunctionTypeRef(
+    parameters: parameters,
+    returnType: _parseZigTypeRef(remainder),
+  );
+}
+
+int _findMatchingParen(String source, int openParen) {
+  var depth = 0;
+  for (var index = openParen; index < source.length; index++) {
+    final char = source.codeUnitAt(index);
+    if (char == 0x28) {
+      depth += 1;
+    } else if (char == 0x29) {
+      depth -= 1;
+      if (depth == 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+List<String> _splitTopLevelCommaSeparated(String source) {
+  final parts = <String>[];
+  var start = 0;
+  var parenDepth = 0;
+  var bracketDepth = 0;
+  var braceDepth = 0;
+
+  for (var index = 0; index < source.length; index++) {
+    final char = source.codeUnitAt(index);
+    if (char == 0x28) {
+      parenDepth += 1;
+    } else if (char == 0x29) {
+      parenDepth -= 1;
+    } else if (char == 0x5b) {
+      bracketDepth += 1;
+    } else if (char == 0x5d) {
+      bracketDepth -= 1;
+    } else if (char == 0x7b) {
+      braceDepth += 1;
+    } else if (char == 0x7d) {
+      braceDepth -= 1;
+    } else if (char == 0x2c &&
+        parenDepth == 0 &&
+        bracketDepth == 0 &&
+        braceDepth == 0) {
+      parts.add(source.substring(start, index));
+      start = index + 1;
+    }
+  }
+
+  parts.add(source.substring(start));
+  return parts;
 }
 
 ({String count, String? sentinel}) _extractSentinel(String countStr) {
@@ -1476,6 +1592,8 @@ final class _DartBindingEmitter {
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
       case _ZigArrayTypeRef(:final child):
         return 'ffi.Array<${_nativeType(child)}>';
+      case _ZigFunctionTypeRef():
+        return 'ffi.NativeFunction<${_nativeFunctionSignature(type)}>';
     }
   }
 
@@ -1507,6 +1625,8 @@ final class _DartBindingEmitter {
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
       case _ZigArrayTypeRef(:final child):
         return 'ffi.Array<${_nativeType(child)}>';
+      case _ZigFunctionTypeRef():
+        return 'ffi.NativeFunction<${_nativeFunctionSignature(type)}>';
     }
   }
 
@@ -1542,6 +1662,8 @@ final class _DartBindingEmitter {
           return '@ffi.Array($dims)';
         }
         return '@ffi.Array.multi([${dimensions.join(', ')}])';
+      case _ZigFunctionTypeRef():
+        return null;
     }
   }
 
@@ -1558,6 +1680,14 @@ final class _DartBindingEmitter {
           return dimensions;
       }
     }
+  }
+
+  String _nativeFunctionSignature(_ZigFunctionTypeRef type) {
+    final returnType = _nativeType(_rawType(type.returnType));
+    final parameters = type.parameters
+        .map((parameter) => _nativeType(_rawType(parameter)))
+        .join(', ');
+    return '$returnType Function($parameters)';
   }
 }
 

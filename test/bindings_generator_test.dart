@@ -142,6 +142,79 @@ export fn make_packet() Packet {
     },
   );
 
+  test(
+    'generateBindings emits function pointer callbacks with NativeFunction',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'native_toolchain_zig_callback_bindings_test_',
+      );
+      addTearDown(() async {
+        if (tempDirectory.existsSync()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await File(
+        path.join(tempDirectory.path, 'pubspec.yaml'),
+      ).writeAsString('name: binding_test_package\n');
+      await Directory(
+        path.join(tempDirectory.path, 'zig', 'src'),
+      ).create(recursive: true);
+      await File(
+        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+      ).writeAsString('''
+const Callback = ?*const fn (value: i32, user: ?*anyopaque) callconv(.c) i32;
+
+const Holder = extern struct {
+    callback: Callback,
+    user: ?*anyopaque,
+};
+
+export fn call_callback(callback: Callback, value: i32, user: ?*anyopaque) i32 {
+    _ = user;
+    return if (callback) |cb| cb(value, user) else 0;
+}
+
+export fn make_holder() Holder {
+    return .{
+        .callback = null,
+        .user = null,
+    };
+}
+''');
+
+      await generateBindings(
+        ZigBindingsOptions(
+          packageRoot: tempDirectory.path,
+          output: 'lib/src/ffi.g.dart',
+        ),
+      );
+
+      final generated = await File(
+        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+      ).readAsString();
+
+      expect(
+        generated,
+        contains(
+          'external ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback;',
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          "@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>>, ffi.Int32, ffi.Pointer<ffi.Void>)>(symbol: 'call_callback')",
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          'external int call_callback(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback, int value, ffi.Pointer<ffi.Void> user);',
+        ),
+      );
+    },
+  );
+
   test('generateBindings carries comments into generated Dart', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'native_toolchain_zig_comment_bindings_test_',
