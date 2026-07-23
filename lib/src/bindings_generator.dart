@@ -494,6 +494,8 @@ final class _ZigApiDescription {
           }
         case _ZigPointerTypeRef():
           visitType(type.child);
+        case _ZigArrayTypeRef():
+          visitType(type.child);
         case _ZigPrimitiveTypeRef():
           break;
       }
@@ -743,9 +745,19 @@ final class _ZigPointerTypeRef extends _ZigTypeRef {
     required this.sentinelSource,
     required this.child,
   });
-
   final _ZigPointerSize size;
   final bool isConst;
+  final String? sentinelSource;
+  final _ZigTypeRef child;
+}
+
+final class _ZigArrayTypeRef extends _ZigTypeRef {
+  const _ZigArrayTypeRef({
+    required this.count,
+    required this.sentinelSource,
+    required this.child,
+  });
+  final int count;
   final String? sentinelSource;
   final _ZigTypeRef child;
 }
@@ -777,6 +789,18 @@ _ZigTypeRef _parseZigTypeRef(String source) {
     );
   }
 
+  final optionalPointerMatch = RegExp(
+    r'^\?\s*\*\s*(const\s+)?(.+)$',
+  ).firstMatch(normalized);
+  if (optionalPointerMatch != null) {
+    return _ZigPointerTypeRef(
+      size: _ZigPointerSize.one,
+      isConst: optionalPointerMatch.group(1) != null,
+      sentinelSource: null,
+      child: _parseZigTypeRef(optionalPointerMatch.group(2)!),
+    );
+  }
+
   final singlePointerMatch = RegExp(
     r'^\*\s*(const\s+)?(.+)$',
   ).firstMatch(normalized);
@@ -789,15 +813,51 @@ _ZigTypeRef _parseZigTypeRef(String source) {
     );
   }
 
+  // Array types: [N]T or [N:S]T
   if (normalized.startsWith('[')) {
-    throw StateError('Unsupported Zig type: $source');
+    final closeBracket = normalized.indexOf(']');
+    if (closeBracket == -1) {
+      throw StateError('Malformed array type: $source');
+    }
+    final countStr = normalized.substring(1, closeBracket);
+    final sentinelSource = _extractSentinel(countStr);
+    final count = int.parse(sentinelSource.count);
+    if (count < 0) {
+      throw StateError('Negative array size: $source');
+    }
+    final innerSource = normalized.substring(closeBracket + 1).trim();
+    if (innerSource.isEmpty) {
+      throw StateError('Missing element type in array: $source');
+    }
+    return _ZigArrayTypeRef(
+      count: count,
+      sentinelSource: sentinelSource.sentinel,
+      child: _parseZigTypeRef(innerSource),
+    );
   }
 
   if (_primitiveSpecs.containsKey(normalized)) {
     return _ZigPrimitiveTypeRef(normalized);
   }
 
+  // Function pointer types: fn(...) callconv(.c) T
+  // Treat them as opaque pointers.
+  if (normalized.startsWith('fn ')) {
+    return _ZigPrimitiveTypeRef('fn_pointer');
+  }
+
   return _ZigNamedTypeRef(normalized);
+}
+
+({String count, String? sentinel}) _extractSentinel(String countStr) {
+  final colon = countStr.indexOf(':');
+  if (colon == -1) {
+    return (count: countStr.trim(), sentinel: null);
+  }
+  return (
+    count: countStr.substring(0, colon).trim(),
+    sentinel: countStr.substring(colon + 1).trim(),
+  );
 }
 
 String _normalizeTypeSource(String source) {
@@ -841,6 +901,10 @@ final class _PrimitiveSpec {
 }
 
 const _primitiveSpecs = <String, _PrimitiveSpec>{
+  'fn_pointer': _PrimitiveSpec(
+    nativeType: 'ffi.Pointer<ffi.Void>',
+    dartType: 'ffi.Pointer<ffi.Void>',
+  ),
   'anyopaque': _PrimitiveSpec(nativeType: 'ffi.Void', dartType: 'ffi.Void'),
   'bool': _PrimitiveSpec(
     nativeType: 'ffi.Bool',
@@ -852,50 +916,51 @@ const _primitiveSpecs = <String, _PrimitiveSpec>{
     dartType: 'int',
     fieldAnnotation: '@ffi.Char()',
   ),
+
   'c_int': _PrimitiveSpec(
-    nativeType: 'ffi.Int',
+    nativeType: 'ffi.Int32',
     dartType: 'int',
-    fieldAnnotation: '@ffi.Int()',
+    fieldAnnotation: '@ffi.Int32()',
   ),
   'c_long': _PrimitiveSpec(
-    nativeType: 'ffi.Long',
+    nativeType: 'ffi.Int64',
     dartType: 'int',
-    fieldAnnotation: '@ffi.Long()',
+    fieldAnnotation: '@ffi.Int64()',
   ),
   'c_longdouble': _PrimitiveSpec(
-    nativeType: 'ffi.LongDouble',
+    nativeType: 'ffi.Double',
     dartType: 'double',
-    fieldAnnotation: '@ffi.LongDouble()',
+    fieldAnnotation: '@ffi.Double()',
   ),
   'c_longlong': _PrimitiveSpec(
-    nativeType: 'ffi.LongLong',
+    nativeType: 'ffi.Int64',
     dartType: 'int',
-    fieldAnnotation: '@ffi.LongLong()',
+    fieldAnnotation: '@ffi.Int64()',
   ),
   'c_short': _PrimitiveSpec(
-    nativeType: 'ffi.Short',
+    nativeType: 'ffi.Int16',
     dartType: 'int',
-    fieldAnnotation: '@ffi.Short()',
+    fieldAnnotation: '@ffi.Int16()',
   ),
   'c_uint': _PrimitiveSpec(
-    nativeType: 'ffi.Uint',
+    nativeType: 'ffi.Uint32',
     dartType: 'int',
-    fieldAnnotation: '@ffi.Uint()',
+    fieldAnnotation: '@ffi.Uint32()',
   ),
   'c_ulong': _PrimitiveSpec(
-    nativeType: 'ffi.ULong',
+    nativeType: 'ffi.Uint64',
     dartType: 'int',
-    fieldAnnotation: '@ffi.ULong()',
+    fieldAnnotation: '@ffi.Uint64()',
   ),
   'c_ulonglong': _PrimitiveSpec(
-    nativeType: 'ffi.ULongLong',
+    nativeType: 'ffi.Uint64',
     dartType: 'int',
-    fieldAnnotation: '@ffi.ULongLong()',
+    fieldAnnotation: '@ffi.Uint64()',
   ),
   'c_ushort': _PrimitiveSpec(
-    nativeType: 'ffi.UShort',
+    nativeType: 'ffi.Uint16',
     dartType: 'int',
-    fieldAnnotation: '@ffi.UShort()',
+    fieldAnnotation: '@ffi.Uint16()',
   ),
   'f32': _PrimitiveSpec(
     nativeType: 'ffi.Float',
@@ -961,10 +1026,12 @@ const _primitiveSpecs = <String, _PrimitiveSpec>{
 };
 
 final class _DartBindingEmitter {
-  const _DartBindingEmitter({required this.api, required this.assetId});
+  _DartBindingEmitter({required this.api, required this.assetId})
+    : _opaqueTypes = {};
 
   final _ZigApiDescription api;
   final String assetId;
+  final Set<String> _opaqueTypes;
 
   String render() {
     final buffer = StringBuffer()
@@ -985,6 +1052,7 @@ final class _DartBindingEmitter {
       ..writeln();
 
     final reachableTypes = api.reachableTypes;
+
     for (final type in reachableTypes.where(
       (type) => type.kind == _ZigContainerKind.enumType,
     )) {
@@ -1006,6 +1074,12 @@ final class _DartBindingEmitter {
 
     for (final function in api.functions) {
       _writeFunction(buffer, function);
+      buffer.writeln();
+    }
+
+    for (final opaqueName in _opaqueTypes) {
+      if (reachableTypes.any((t) => t.name == opaqueName)) continue;
+      _writeOpaqueType(buffer, opaqueName);
       buffer.writeln();
     }
 
@@ -1052,6 +1126,12 @@ final class _DartBindingEmitter {
       )
       ..writeln('  };')
       ..writeln('}');
+  }
+
+  void _writeOpaqueType(StringBuffer buffer, String name) {
+    buffer.writeln(
+      'final class ${_safeTypeIdentifier(name)} extends ffi.Opaque {}',
+    );
   }
 
   void _writeCompoundType(StringBuffer buffer, _ZigTypeDecl type) {
@@ -1332,11 +1412,14 @@ final class _DartBindingEmitter {
       case _ZigNamedTypeRef(:final name):
         final decl = api.typesByName[name];
         if (decl == null) {
-          throw StateError('Unsupported Zig named type: $name');
+          _opaqueTypes.add(name);
+          return _safeTypeIdentifier(name);
         }
         return _safeTypeIdentifier(name);
       case _ZigPointerTypeRef(:final child):
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
+      case _ZigArrayTypeRef(:final count, :final child):
+        return 'ffi.Array<$count, ${_nativeType(child)}>';
     }
   }
 
@@ -1351,7 +1434,8 @@ final class _DartBindingEmitter {
       case _ZigNamedTypeRef(:final name):
         final decl = api.typesByName[name];
         if (decl == null) {
-          throw StateError('Unsupported Zig named type: $name');
+          _opaqueTypes.add(name);
+          return _safeTypeIdentifier(name);
         }
         if (decl.kind == _ZigContainerKind.enumType) {
           final tagType = decl.tagType;
@@ -1365,6 +1449,8 @@ final class _DartBindingEmitter {
         return _safeTypeIdentifier(name);
       case _ZigPointerTypeRef(:final child):
         return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
+      case _ZigArrayTypeRef(:final count, :final child):
+        return 'ffi.Array<$count, ${_nativeType(child)}>';
     }
   }
 
@@ -1392,6 +1478,8 @@ final class _DartBindingEmitter {
         }
         return null;
       case _ZigPointerTypeRef():
+        return null;
+      case _ZigArrayTypeRef():
         return null;
     }
   }

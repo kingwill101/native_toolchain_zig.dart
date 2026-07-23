@@ -168,6 +168,8 @@ const Extractor = struct {
     // Only the root file contributes library-level comments. Imported-module
     // headers are attached to the first collected declaration in that namespace.
     library_comments: CommentLines,
+    // Tracks `c.` prefixed types from `@cImport` declarations.
+    cImportTypes: std.StringHashMap(void),
 
     /// Creates an empty collector. The caller owns allocator lifetime.
     fn init(allocator: Allocator) Extractor {
@@ -182,6 +184,7 @@ const Extractor = struct {
             .direct_import_scopes = std.StringHashMap([]const u8).init(allocator),
             .module_scopes = std.StringHashMap([]const u8).init(allocator),
             .library_comments = empty_comments,
+            .cImportTypes = std.StringHashMap(void).init(allocator),
         };
     }
 
@@ -512,6 +515,64 @@ const Extractor = struct {
                 .scope = try self.allocator.dupe(u8, scope),
                 .target = rewritten_target,
             });
+            return false;
+        }
+
+        // `@cImport` declarations are processed by running `zig translate-c` on
+        // the C body and then parsing the resulting Zig module under the
+        // namespace assigned to the import.
+        // Detect @cImport structurally via the AST (nodeSource doesn't
+        // reliably span builtin nodes in Zig 0.15).
+        if (tree.nodeTag(init_node) == .builtin_call_two and
+            std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(init_node)), "@cImport"))
+        {
+            var params_buffer: [2]Ast.Node.Index = undefined;
+            const params = tree.builtinCallParams(&params_buffer, init_node) orelse return false;
+            if (params.len != 1) return false;
+            // Span the block parameter directly (nodeSource may not correctly
+            // span container decl / block nodes in Zig 0.15).
+            const block_first_tok = tree.firstToken(params[0]);
+            const block_last_tok = tree.lastToken(params[0]);
+            const block_start = tree.tokenStart(block_first_tok);
+            const block_end = tree.tokenStart(block_last_tok) +
+                tree.tokenSlice(block_last_tok).len;
+            const block_span = source[block_start..block_end];
+            const c_source = (try cImportBodySource(self.allocator, block_span)) orelse return false;
+            const module_abs_dir = try std.fs.cwd().realpathAlloc(
+                self.allocator,
+                module_dir,
+            );
+            const c_file_rel = ".zigchain_cimport_source.c";
+            {
+                var dir = try std.fs.cwd().openDir(module_dir, .{});
+                defer dir.close();
+                try dir.writeFile(.{ .sub_path = c_file_rel, .data = c_source });
+            }
+            const c_file_abs = try std.fs.path.join(
+                self.allocator,
+                &.{ module_abs_dir, c_file_rel },
+            );
+
+            const zig_source = runTranslateC(self.allocator, c_file_abs) catch |err| {
+                std.debug.print(
+                    "error: failed to translate @cImport C source: {s}\n",
+                    .{@errorName(err)},
+                );
+                return err;
+            };
+
+            const zig_file_rel = ".zigchain_cimport.zig";
+            {
+                var dir = try std.fs.cwd().openDir(module_dir, .{});
+                defer dir.close();
+                try dir.writeFile(.{ .sub_path = zig_file_rel, .data = zig_source });
+            }
+            const zig_file_abs = try std.fs.path.join(
+                self.allocator,
+                &.{ module_abs_dir, zig_file_rel },
+            );
+
+            try self.collectModule(zig_file_abs, qualified_name);
             return false;
         }
 
@@ -1280,6 +1341,165 @@ fn importPathFromStringLiteralSource(
     }
 
     return try allocator.dupe(u8, import_path);
+}
+
+/// Rewrites Zig-style `@include("...")` or `@cInclude("...")` to C-style
+/// `#include "..."` within a block of source text. Used to prepare `@cImport`
+/// block bodies for `zig translate-c`.
+fn rewriteIncludeCalls(allocator: Allocator, raw: []const u8) anyerror![]const u8 {
+    var result = std.ArrayList(u8).empty;
+    var pos: usize = 0;
+    while (pos < raw.len) {
+        if (std.mem.startsWith(u8, raw[pos..], "@cInclude(")) {
+            try result.appendSlice(allocator, "#include ");
+            pos += "@cInclude(".len;
+            const arg_start = pos;
+            var depth: usize = 1;
+            while (pos < raw.len and depth > 0) : (pos += 1) {
+                switch (raw[pos]) {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    else => {},
+                }
+            }
+            if (depth != 0) return error.UnmatchedParenInInclude;
+            try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
+        } else if (std.mem.startsWith(u8, raw[pos..], "@include(")) {
+            try result.appendSlice(allocator, "#include ");
+            pos += "@include(".len;
+            const arg_start = pos;
+            var depth: usize = 1;
+            while (pos < raw.len and depth > 0) : (pos += 1) {
+                switch (raw[pos]) {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    else => {},
+                }
+            }
+            if (depth != 0) return error.UnmatchedParenInInclude;
+            try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
+        } else {
+            try result.append(allocator, raw[pos]);
+            pos += 1;
+        }
+    }
+    return result.toOwnedSlice(allocator);
+}
+
+/// Detects `@cImport({...})` or a bare `{...}` block and returns the block
+/// body (between the outer braces) with Zig-style `@include("...")` rewritten
+/// to C-style `#include "..."` so the result can be fed to `zig translate-c`.
+fn cImportBodySource(allocator: Allocator, source: []const u8) anyerror!?[]const u8 {
+    const trimmed = std.mem.trim(u8, source, " \t\r\n");
+
+    // Scan past optional `@cImport(` prefix to find the opening `{`
+    var start: usize = 0;
+    if (std.mem.startsWith(u8, trimmed, "@cImport(")) {
+        start = "@cImport(".len;
+    }
+
+    while (start < trimmed.len and trimmed[start] != '{') : (start += 1) {}
+    if (start >= trimmed.len or trimmed[start] != '{') return null;
+
+    var i: usize = start + 1;
+    var depth: usize = 1;
+    while (i < trimmed.len and depth > 0) : (i += 1) {
+        switch (trimmed[i]) {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            else => {},
+        }
+    }
+    if (depth != 0) return null;
+
+    const raw = trimmed[start + 1 .. i - 1];
+    return try rewriteIncludeCalls(allocator, raw);
+}
+
+/// Returns standard system include paths for C compilation. Used by
+/// `runTranslateC` so that headers from the system C library are found.
+fn sysIncludePaths() []const []const u8 {
+    return &.{
+        "/usr/include",
+        "/usr/local/include",
+        "/usr/lib/zig/include",
+    };
+}
+
+/// Runs `zig translate-c` on a C source file and returns the generated Zig
+/// source. Errors propagate as `error.TranslateCFailed` when the subprocess
+/// exits with a non-zero status.
+///
+/// Include paths are auto-discovered relative to the C source file:
+/// - The source file's own directory
+/// - A sibling `include/` directory (e.g. when source is in `src/`)
+/// - The source file's `include/` subdirectory
+fn runTranslateC(
+    allocator: Allocator,
+    c_source_file: []const u8,
+) anyerror![]const u8 {
+    // Build the argument list with auto-discovered include paths.
+    var args = std.ArrayList([]const u8).empty;
+    try args.append(allocator, "zig");
+    try args.append(allocator, "translate-c");
+
+    // Discover include paths relative to the C source file.
+    if (std.fs.path.dirname(c_source_file)) |c_dir| {
+        // The source file's own directory.
+        try args.append(allocator, "-I");
+        try args.append(allocator, try allocator.dupe(u8, c_dir));
+
+        // Check for a sibling `include/` directory (common convention
+        // when sources are under `src/` and headers under `include/`).
+        if (std.fs.path.dirname(c_dir)) |parent_dir| {
+            const sibling_include = try std.fs.path.join(allocator, &.{ parent_dir, "include" });
+            if (std.fs.cwd().access(sibling_include, .{})) {
+                try args.append(allocator, "-I");
+                try args.append(allocator, sibling_include);
+            } else |_| {}
+        }
+
+        // Check for `include/` in the source file's directory.
+        const local_include = try std.fs.path.join(allocator, &.{ c_dir, "include" });
+        if (std.fs.cwd().access(local_include, .{})) {
+            try args.append(allocator, "-I");
+            try args.append(allocator, local_include);
+        } else |_| {}
+    }
+
+    // Add standard system include paths so headers like <assert.h> can
+    // be found. On systems with a zig built from source these may not
+    // be auto-configured for translate-c.
+    for (sysIncludePaths()) |sys_inc| {
+        try args.append(allocator, "-I");
+        try args.append(allocator, sys_inc);
+    }
+
+    try args.append(allocator, c_source_file);
+
+    var child = std.process.Child.init(args.items, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+    try child.spawn();
+
+    const stdout = try child.stdout.?.readToEndAlloc(allocator, 1024 * 1024);
+    const stderr = try child.stderr.?.readToEndAlloc(allocator, 1024 * 1024);
+    const term = try child.wait();
+
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print(
+                    "zig translate-c exited with code {d}:\n{s}\n",
+                    .{ code, stderr },
+                );
+                return error.TranslateCFailed;
+            }
+        },
+        else => return error.TranslateCFailed,
+    }
+
+    return stdout;
 }
 
 /// Sanitizes a filename stem into a namespace fragment safe for qualified names.
@@ -2204,4 +2424,125 @@ test "Extractor.collect rejects tuple-like struct fields" {
             },
         ),
     );
+}
+
+test "cImportBodySource extracts and transforms @cImport block content" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+
+    const source =
+        \\@cImport({
+        \\    @cInclude("simple.h");
+        \\})
+    ;
+
+    const body = (try cImportBodySource(allocator, source)) orelse
+        return error.TestExpectedEqual;
+
+    // Should contain #include, not @cInclude
+    try std.testing.expect(std.mem.indexOf(u8, body, "#include") != null);
+    try std.testing.expect(std.mem.indexOf(u8, body, "@cInclude") == null);
+    // Should contain the header path
+    try std.testing.expect(std.mem.indexOf(u8, body, "simple.h") != null);
+}
+
+test "runTranslateC translates a simple C header" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "simple.h", .data = "typedef long Dart_Port_DL;\n" });
+
+    const temp_abs = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "test.c" });
+    try tmp.dir.writeFile(.{ .sub_path = "test.c", .data = "#include \"simple.h\"\n" });
+
+    const zig_source = try runTranslateC(allocator, c_abs);
+    try std.testing.expect(std.mem.indexOf(u8, zig_source, "Dart_Port_DL") != null);
+}
+
+test "collectModule discovers aliases from a simple module under a scope" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+
+    const module_source =
+        \\pub const Dart_Port_DL = c_long;
+    ;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(
+        .{ .sub_path = "types.zig", .data = module_source },
+    );
+    const module_abs = try tmp.parent_dir.realpathAlloc(
+        allocator,
+        &tmp.sub_path,
+    );
+    const module_abs_path = try std.fs.path.join(
+        allocator,
+        &.{ module_abs, "types.zig" },
+    );
+
+    var extractor = Extractor.init(allocator);
+    try extractor.collectModule(module_abs_path, "c");
+
+    try std.testing.expectEqual(@as(usize, 1), extractor.raw_aliases.items.len);
+    try std.testing.expectEqualStrings(
+        "c.Dart_Port_DL",
+        extractor.raw_aliases.items[0].name,
+    );
+}
+
+test "Extractor.collect resolves @cImport types from fixture directory" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+
+    const fixture_dir = "test_fixtures/cimport_simple";
+
+    // Copy fixture into a temp directory so extractor temp files don't pollute.
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    {
+        var fixture_dir_handle = try std.fs.cwd().openDir(fixture_dir, .{ .iterate = true });
+        defer fixture_dir_handle.close();
+        var iter = fixture_dir_handle.iterate();
+        while (try iter.next()) |entry| {
+            if (entry.kind != .file) continue;
+            const content = try fixture_dir_handle.readFileAlloc(
+                allocator,
+                entry.name,
+                1024 * 1024,
+            );
+            try tmp.dir.writeFile(.{ .sub_path = entry.name, .data = content });
+        }
+    }
+
+    const temp_abs = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const root_abs = try std.fs.path.join(allocator, &.{ temp_abs, "lib.zig" });
+
+    var extractor = Extractor.init(allocator);
+    const document = try extractor.collect(root_abs);
+
+    // translate-c should resolve C typedefs to their Zig representations.
+    // c.Dart_Port_DL → c_long, c.Dart_Handle → ?*anyopaque, c.Dart_Status → c_int
+    try std.testing.expectEqual(@as(usize, 3), document.functions.len);
+
+    const get_version = try requireFunction(&document, "get_version");
+    try std.testing.expectEqualStrings("c_long", get_version.return_type);
+    try std.testing.expectEqual(@as(usize, 0), get_version.params.len);
+
+    const new_handle = try requireFunction(&document, "new_handle");
+    try std.testing.expectEqualStrings("?*anyopaque", new_handle.return_type);
+    try std.testing.expectEqual(@as(usize, 1), new_handle.params.len);
+    try std.testing.expectEqualStrings("value", new_handle.params[0].name);
+    try std.testing.expectEqualStrings("?*anyopaque", new_handle.params[0].type);
+
+    const get_status = try requireFunction(&document, "get_status");
+    try std.testing.expectEqualStrings("c_int", get_status.return_type);
 }
