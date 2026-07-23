@@ -215,6 +215,77 @@ export fn make_holder() Holder {
     },
   );
 
+  test('generateBindings emits void callback function pointers', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'native_toolchain_zig_void_callback_bindings_test_',
+    );
+    addTearDown(() async {
+      if (tempDirectory.existsSync()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await File(
+      path.join(tempDirectory.path, 'pubspec.yaml'),
+    ).writeAsString('name: binding_test_package\n');
+    await Directory(
+      path.join(tempDirectory.path, 'zig', 'src'),
+    ).create(recursive: true);
+    await File(
+      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+    ).writeAsString('''
+const Point = extern struct {
+    x: i32,
+    y: i32,
+};
+
+const VisitCallback = ?*const fn (point: Point, user: ?*anyopaque) callconv(.c) void;
+
+const Listener = extern struct {
+    callback: VisitCallback,
+};
+
+export fn visit_points(visit: VisitCallback, user: ?*anyopaque) void {
+    _ = visit;
+    _ = user;
+}
+
+export fn use_listener(listener: Listener) void {
+    _ = listener;
+}
+''');
+
+    await generateBindings(
+      ZigBindingsOptions(
+        packageRoot: tempDirectory.path,
+        output: 'lib/src/ffi.g.dart',
+      ),
+    );
+
+    final generated = await File(
+      path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+    ).readAsString();
+
+    expect(
+      generated,
+      contains(
+        'external ffi.Pointer<ffi.NativeFunction<ffi.Void Function(Point, ffi.Pointer<ffi.Void>)>> callback;',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        "@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.NativeFunction<ffi.Void Function(Point, ffi.Pointer<ffi.Void>)>>, ffi.Pointer<ffi.Void>)>(symbol: 'visit_points')",
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        "@ffi.Native<ffi.Void Function(Listener)>(symbol: 'use_listener')",
+      ),
+    );
+  });
+
   test('generateBindings emits multi-dimensional array fields', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'native_toolchain_zig_multi_array_bindings_test_',
