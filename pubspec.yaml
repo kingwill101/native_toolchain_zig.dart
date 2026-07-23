@@ -12,6 +12,7 @@ environment:
 
 workspace:
   - example/bindings
+  - example/cimport
   - example/dart_api
   - example/math
 
