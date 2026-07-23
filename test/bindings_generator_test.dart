@@ -215,6 +215,58 @@ export fn make_holder() Holder {
     },
   );
 
+  test('generateBindings emits multi-dimensional array fields', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'native_toolchain_zig_multi_array_bindings_test_',
+    );
+    addTearDown(() async {
+      if (tempDirectory.existsSync()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await File(
+      path.join(tempDirectory.path, 'pubspec.yaml'),
+    ).writeAsString('name: binding_test_package\n');
+    await Directory(
+      path.join(tempDirectory.path, 'zig', 'src'),
+    ).create(recursive: true);
+    await File(
+      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+    ).writeAsString('''
+const Grid = extern struct {
+    bytes: [2][3]u8,
+};
+
+export fn make_grid() Grid {
+    return .{
+        .bytes = .{
+            .{ 1, 2, 3 },
+            .{ 4, 5, 6 },
+        },
+    };
+}
+''');
+
+    await generateBindings(
+      ZigBindingsOptions(
+        packageRoot: tempDirectory.path,
+        output: 'lib/src/ffi.g.dart',
+      ),
+    );
+
+    final generated = await File(
+      path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+    ).readAsString();
+
+    expect(generated, contains('final class Grid extends ffi.Struct {'));
+    expect(generated, contains('@ffi.Array(2, 3)'));
+    expect(
+      generated,
+      contains('external ffi.Array<ffi.Array<ffi.Uint8>> bytes;'),
+    );
+  });
+
   test('generateBindings carries comments into generated Dart', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'native_toolchain_zig_comment_bindings_test_',
