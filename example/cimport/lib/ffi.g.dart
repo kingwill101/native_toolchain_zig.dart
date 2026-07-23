@@ -100,6 +100,9 @@ external int cimport_sum_points(ffi.Pointer<c_struct_CImportPoint> points, int l
 @ffi.Native<ffi.Int32 Function(ffi.Pointer<c_struct_CImportPoint>, ffi.UintPtr, ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(c_struct_CImportPoint, ffi.Pointer<ffi.Void>)>>, ffi.Pointer<ffi.Void>)>(symbol: 'cimport_fold_points')
 external int cimport_fold_points(ffi.Pointer<c_struct_CImportPoint> points, int len, ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(c_struct_CImportPoint, ffi.Pointer<ffi.Void>)>> fold, ffi.Pointer<ffi.Void> user);
 
+@ffi.Native<ffi.Void Function(ffi.Pointer<c_struct_CImportPoint>, ffi.UintPtr, ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<c_struct_CImportPoint>, ffi.Pointer<ffi.Void>)>>, ffi.Pointer<ffi.Void>)>(symbol: 'cimport_visit_points')
+external void cimport_visit_points(ffi.Pointer<c_struct_CImportPoint> points, int len, ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<c_struct_CImportPoint>, ffi.Pointer<ffi.Void>)>> visit, ffi.Pointer<ffi.Void> user);
+
 @ffi.Native<ffi.Pointer<ffi.Uint8> Function(ffi.Uint32)>(symbol: 'cimport_kind_name')
 external ffi.Pointer<ffi.Uint8> cimport_kind_name(int kind);
 

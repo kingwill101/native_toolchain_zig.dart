@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:cimport/cimport.dart';
 import 'package:cimport/ffi.g.dart';
 
-void main() {
+Future<void> main() async {
   stdout.writeln('=== cImport Stress Demo ===');
   stdout.writeln('');
 
@@ -12,5 +12,6 @@ void main() {
   stdout.writeln('node count      = ${cimport_node_count(demo.head)}');
   stdout.writeln('node sum        = ${cimport_node_sum(demo.head)}');
   stdout.writeln('fold points     = ${demo.foldPoints()}');
+  stdout.writeln('visit points    = ${await demo.visitPoints()}');
   demo.close();
 }

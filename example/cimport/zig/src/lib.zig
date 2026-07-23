@@ -103,6 +103,19 @@ export fn cimport_fold_points(
     return total;
 }
 
+export fn cimport_visit_points(
+    points: [*]const c.CImportPoint,
+    len: usize,
+    visit: c.CImportVisitFn,
+    user: ?*anyopaque,
+) void {
+    if (visit) |callback| {
+        for (0..len) |index| {
+            callback(&points[index], user);
+        }
+    }
+}
+
 export fn cimport_kind_name(kind: c.CImportKind) [*:0]const u8 {
     return switch (kind) {
         0 => "invalid",

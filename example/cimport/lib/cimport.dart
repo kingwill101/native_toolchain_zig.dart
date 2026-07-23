@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+
 import 'ffi.g.dart';
 
 typedef CImportPoint = c_struct_CImportPoint;
@@ -9,6 +11,8 @@ typedef CImportPacket = c_struct_CImportPacket;
 typedef CImportNode = c_struct_CImportNode;
 typedef CImportFoldCallback =
     Int32 Function(CImportPoint point, Pointer<Void> user);
+typedef CImportVisitCallback =
+    Void Function(Pointer<CImportPoint> point, Pointer<Void> user);
 
 abstract final class CImportKind {
   static const int invalid = 0;
@@ -35,7 +39,7 @@ class CImportDemo {
       points[0] = cimport_point_make(1, 1);
       points[1] = cimport_point_make(2, 3);
 
-      var callback = NativeCallable<CImportFoldCallback>.isolateLocal(
+      var callback = NativeCallable<CImportFoldCallback>.isolateGroupBound(
         (CImportPoint point, Pointer<Void> _) => point.x + point.y,
         exceptionalReturn: 0,
       );
@@ -44,6 +48,35 @@ class CImportDemo {
       } finally {
         callback.close();
       }
+    } finally {
+      calloc.free(points);
+    }
+  }
+
+  Future<int> visitPoints() async {
+    var points = calloc<CImportPoint>(2);
+    try {
+      points[0] = cimport_point_make(4, 5);
+      points[1] = cimport_point_make(6, 7);
+
+      var completer = Completer<int>();
+      var count = 0;
+      var sum = 0;
+      late NativeCallable<CImportVisitCallback> callback;
+      callback = NativeCallable<CImportVisitCallback>.listener((
+        Pointer<CImportPoint> point,
+        Pointer<Void> _,
+      ) {
+        count += 1;
+        sum += point.ref.x + point.ref.y;
+        if (count == 2 && !completer.isCompleted) {
+          completer.complete(sum);
+          callback.close();
+        }
+      });
+
+      cimport_visit_points(points, 2, callback.nativeFunction, nullptr);
+      return await completer.future;
     } finally {
       calloc.free(points);
     }
