@@ -1,13 +1,16 @@
+import 'dart:io';
+
 import 'package:cimport/cimport.dart';
 import 'package:cimport/ffi.g.dart';
 
 void main() {
-  print('=== cImport Stress Demo ===');
-  print('');
+  stdout.writeln('=== cImport Stress Demo ===');
+  stdout.writeln('');
 
-  final demo = CImportDemo();
-  print('packet checksum = ${cimport_packet_checksum(demo.packet)}');
-  print('node count      = ${cimport_node_count(demo.head)}');
-  print('node sum        = ${cimport_node_sum(demo.head)}');
+  var demo = CImportDemo();
+  stdout.writeln('packet checksum = ${cimport_packet_checksum(demo.packet)}');
+  stdout.writeln('node count      = ${cimport_node_count(demo.head)}');
+  stdout.writeln('node sum        = ${cimport_node_sum(demo.head)}');
+  stdout.writeln('fold points     = ${demo.foldPoints()}');
   demo.close();
 }
