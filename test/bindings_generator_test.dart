@@ -142,27 +142,25 @@ export fn make_packet() Packet {
     },
   );
 
-  test(
-    'generateBindings emits function pointer callbacks with NativeFunction',
-    () async {
-      final tempDirectory = await Directory.systemTemp.createTemp(
-        'native_toolchain_zig_callback_bindings_test_',
-      );
-      addTearDown(() async {
-        if (tempDirectory.existsSync()) {
-          await tempDirectory.delete(recursive: true);
-        }
-      });
+  test('generateBindings emits function pointer callbacks with NativeFunction', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'native_toolchain_zig_callback_bindings_test_',
+    );
+    addTearDown(() async {
+      if (tempDirectory.existsSync()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
 
-      await File(
-        path.join(tempDirectory.path, 'pubspec.yaml'),
-      ).writeAsString('name: binding_test_package\n');
-      await Directory(
-        path.join(tempDirectory.path, 'zig', 'src'),
-      ).create(recursive: true);
-      await File(
-        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-      ).writeAsString('''
+    await File(
+      path.join(tempDirectory.path, 'pubspec.yaml'),
+    ).writeAsString('name: binding_test_package\n');
+    await Directory(
+      path.join(tempDirectory.path, 'zig', 'src'),
+    ).create(recursive: true);
+    await File(
+      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+    ).writeAsString('''
 const Callback = ?*const fn (value: i32, user: ?*anyopaque) callconv(.c) i32;
 
 const Holder = extern struct {
@@ -183,37 +181,48 @@ export fn make_holder() Holder {
 }
 ''');
 
-      await generateBindings(
-        ZigBindingsOptions(
-          packageRoot: tempDirectory.path,
-          output: 'lib/src/ffi.g.dart',
-        ),
-      );
+    await generateBindings(
+      ZigBindingsOptions(
+        packageRoot: tempDirectory.path,
+        output: 'lib/src/ffi.g.dart',
+      ),
+    );
 
-      final generated = await File(
-        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
-      ).readAsString();
+    final generated = await File(
+      path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+    ).readAsString();
 
-      expect(
-        generated,
-        contains(
-          'external ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback;',
-        ),
-      );
-      expect(
-        generated,
-        contains(
-          "@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>>, ffi.Int32, ffi.Pointer<ffi.Void>)>(symbol: 'call_callback')",
-        ),
-      );
-      expect(
-        generated,
-        contains(
-          'external int call_callback(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback, int value, ffi.Pointer<ffi.Void> user);',
-        ),
-      );
-    },
-  );
+    expect(
+      generated,
+      contains(
+        'typedef Callback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        'typedef call_callbackCallback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        'external ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback;',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        "@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>>, ffi.Int32, ffi.Pointer<ffi.Void>)>(symbol: 'call_callback')",
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        'external int call_callback(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback, int value, ffi.Pointer<ffi.Void> user);',
+      ),
+    );
+  });
 
   test('generateBindings emits void callback function pointers', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -266,6 +275,18 @@ export fn use_listener(listener: Listener) void {
       path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
     ).readAsString();
 
+    expect(
+      generated,
+      contains(
+        'typedef VisitCallback = ffi.Void Function(Point, ffi.Pointer<ffi.Void>);',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        'typedef Callback = ffi.Void Function(Point, ffi.Pointer<ffi.Void>);',
+      ),
+    );
     expect(
       generated,
       contains(
@@ -337,6 +358,56 @@ export fn make_grid() Grid {
       contains('external ffi.Array<ffi.Array<ffi.Uint8>> bytes;'),
     );
   });
+
+  test(
+    'generateBindings emits packed structs with Packed annotation',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'native_toolchain_zig_packed_bindings_test_',
+      );
+      addTearDown(() async {
+        if (tempDirectory.existsSync()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await File(
+        path.join(tempDirectory.path, 'pubspec.yaml'),
+      ).writeAsString('name: binding_test_package\n');
+      await Directory(
+        path.join(tempDirectory.path, 'zig', 'src'),
+      ).create(recursive: true);
+      await File(
+        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+      ).writeAsString('''
+const Packed = packed struct {
+    a: u8,
+    b: u32,
+};
+
+export fn make_packed() Packed {
+    return .{
+        .a = 1,
+        .b = 2,
+    };
+}
+''');
+
+      await generateBindings(
+        ZigBindingsOptions(
+          packageRoot: tempDirectory.path,
+          output: 'lib/src/ffi.g.dart',
+        ),
+      );
+
+      final generated = await File(
+        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+      ).readAsString();
+
+      expect(generated, contains('@ffi.Packed(1)'));
+      expect(generated, contains('final class Packed extends ffi.Struct {'));
+    },
+  );
 
   test('generateBindings carries comments into generated Dart', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -654,6 +725,72 @@ pub const TextScanOptions = extern struct {
       );
     },
   );
+
+  test('generateBindings resolves alias chains across imports', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'native_toolchain_zig_alias_chain_bindings_test_',
+    );
+    addTearDown(() async {
+      if (tempDirectory.existsSync()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await File(
+      path.join(tempDirectory.path, 'pubspec.yaml'),
+    ).writeAsString('name: binding_test_package\n');
+    await Directory(
+      path.join(tempDirectory.path, 'zig', 'src'),
+    ).create(recursive: true);
+    await File(
+      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
+    ).writeAsString('''
+const api = @import("api.zig");
+
+const FirstAlias = api.TextScanOptions;
+const SecondAlias = FirstAlias;
+
+export fn normalize_options(options: SecondAlias) SecondAlias {
+    return options;
+}
+''');
+    await File(
+      path.join(tempDirectory.path, 'zig', 'src', 'api.zig'),
+    ).writeAsString('''
+pub const TextScanOptions = extern struct {
+    start: usize,
+    end: usize,
+};
+''');
+
+    await generateBindings(
+      ZigBindingsOptions(
+        packageRoot: tempDirectory.path,
+        output: 'lib/src/ffi.g.dart',
+      ),
+    );
+
+    final generated = await File(
+      path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+    ).readAsString();
+
+    expect(
+      generated,
+      contains('final class api_TextScanOptions extends ffi.Struct {'),
+    );
+    expect(
+      generated,
+      contains(
+        '@ffi.Native<api_TextScanOptions Function(api_TextScanOptions)>',
+      ),
+    );
+    expect(
+      generated,
+      contains(
+        'api_TextScanOptions normalize_options(api_TextScanOptions options)',
+      ),
+    );
+  });
 
   test('generateBindingsSource reports reachable Zig dependencies', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(

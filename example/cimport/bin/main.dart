@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:cimport/cimport.dart'
-    show CImportFoldCallback, CImportKind, CImportPoint, CImportVisitCallback;
+import 'package:cimport/cimport.dart' show CImportKind, CImportPoint;
 import 'package:cimport/ffi.g.dart';
 import 'package:ffi/ffi.dart';
 
@@ -23,7 +22,7 @@ Future<void> main() async {
     points[1] = cimport_point_make(2, 3);
     stdout.writeln('sum points      = ${cimport_sum_points(points, 2)}');
 
-    var foldCallback = NativeCallable<CImportFoldCallback>.isolateGroupBound(
+    var foldCallback = NativeCallable<FoldCallback>.isolateGroupBound(
       (CImportPoint point, Pointer<Void> _) => point.x + point.y,
       exceptionalReturn: 0,
     );
@@ -37,8 +36,8 @@ Future<void> main() async {
 
     var visitClosed = false;
     var visitCompleter = Completer<int>();
-    late NativeCallable<CImportVisitCallback> visitCallback;
-    visitCallback = NativeCallable<CImportVisitCallback>.listener((
+    late NativeCallable<VisitCallback> visitCallback;
+    visitCallback = NativeCallable<VisitCallback>.listener((
       Pointer<CImportPoint> point,
       Pointer<Void> _,
     ) {

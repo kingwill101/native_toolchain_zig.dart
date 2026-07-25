@@ -618,7 +618,9 @@ final class _ZigTypeDecl {
   final List<String> comments;
 
   bool get isExternContainer =>
-      kind == _ZigContainerKind.enumType || layout == 'extern';
+      kind == _ZigContainerKind.enumType ||
+      layout == 'extern' ||
+      (kind == _ZigContainerKind.structType && layout == 'packed');
 
   List<_ZigEnumCase> get enumCases {
     if (kind != _ZigContainerKind.enumType) {
@@ -1202,6 +1204,8 @@ final class _DartBindingEmitter {
   final _ZigApiDescription api;
   final String assetId;
   final Set<String> _opaqueTypes;
+  final Map<String, _CallbackTypedefDecl> _callbackTypedefs =
+      <String, _CallbackTypedefDecl>{};
 
   String render() {
     final buffer = StringBuffer()
@@ -1222,11 +1226,17 @@ final class _DartBindingEmitter {
       ..writeln();
 
     final reachableTypes = api.reachableTypes;
+    _collectCallbackTypedefs(reachableTypes);
 
     for (final type in reachableTypes.where(
       (type) => type.kind == _ZigContainerKind.enumType,
     )) {
       _writeEnum(buffer, type);
+      buffer.writeln();
+    }
+
+    for (final callback in _callbackTypedefs.values) {
+      _writeCallbackTypedef(buffer, callback);
       buffer.writeln();
     }
 
@@ -1313,11 +1323,14 @@ final class _DartBindingEmitter {
           _ZigContainerKind.structType => 'struct',
           _ZigContainerKind.unionType => 'union',
           _ZigContainerKind.enumType => 'enum',
-        }}` to participate in the generated ABI surface.',
+        }}` or `packed struct` to participate in the generated ABI surface.',
       );
     }
 
     _writeCommentBlock(buffer, type.comments);
+    if (type.kind == _ZigContainerKind.structType && type.layout == 'packed') {
+      buffer.writeln('@ffi.Packed(1)');
+    }
     buffer.writeln(
       'final class ${_safeTypeIdentifier(type.name)} extends ffi.'
       '${switch (type.kind) {
@@ -1541,6 +1554,142 @@ final class _DartBindingEmitter {
         '$nativeParameters)';
   }
 
+  void _collectCallbackTypedefs(List<_ZigTypeDecl> reachableTypes) {
+    for (final type in reachableTypes) {
+      for (final member in type.members) {
+        final memberType = member.type;
+        if (memberType != null) {
+          _collectCallbackTypedefsFromType(
+            memberType,
+            contextName: type.name,
+            memberName: member.name,
+          );
+        }
+      }
+    }
+
+    for (final function in api.functions) {
+      _collectCallbackTypedefsFromType(
+        function.returnType,
+        contextName: function.name,
+        memberName: 'return',
+      );
+      for (final parameter in function.parameters) {
+        _collectCallbackTypedefsFromType(
+          parameter.type,
+          contextName: function.name,
+          memberName: parameter.name,
+        );
+      }
+    }
+
+    for (final global in api.globals) {
+      _collectCallbackTypedefsFromType(
+        global.type,
+        contextName: global.name,
+        memberName: 'value',
+      );
+    }
+  }
+
+  void _collectCallbackTypedefsFromType(
+    _ZigTypeRef type, {
+    required String contextName,
+    required String memberName,
+  }) {
+    switch (type) {
+      case _ZigPointerTypeRef(:final child):
+        if (child case _ZigFunctionTypeRef()) {
+          _registerCallbackTypedef(
+            contextName: contextName,
+            memberName: memberName,
+            functionType: child,
+          );
+        } else {
+          _collectCallbackTypedefsFromType(
+            child,
+            contextName: contextName,
+            memberName: memberName,
+          );
+        }
+      case _ZigArrayTypeRef(:final child):
+        _collectCallbackTypedefsFromType(
+          child,
+          contextName: contextName,
+          memberName: memberName,
+        );
+      case _ZigFunctionTypeRef():
+        _registerCallbackTypedef(
+          contextName: contextName,
+          memberName: memberName,
+          functionType: type,
+        );
+      case _ZigPrimitiveTypeRef():
+        break;
+      case _ZigNamedTypeRef():
+        break;
+    }
+  }
+
+  void _registerCallbackTypedef({
+    required String contextName,
+    required String memberName,
+    required _ZigFunctionTypeRef functionType,
+  }) {
+    final baseName = _callbackTypedefBaseName(memberName);
+    var typedefName = baseName;
+    if (_callbackTypedefs.containsKey(typedefName) ||
+        api.typeDeclForName(typedefName) != null) {
+      typedefName = '${_safeTypeIdentifier(contextName)}$baseName';
+    }
+    var suffix = 2;
+    while (_callbackTypedefs.containsKey(typedefName)) {
+      typedefName = '${_safeTypeIdentifier(contextName)}$baseName$suffix';
+      suffix += 1;
+    }
+
+    _callbackTypedefs.putIfAbsent(
+      typedefName,
+      () => _CallbackTypedefDecl(name: typedefName, functionType: functionType),
+    );
+  }
+
+  String _callbackTypedefBaseName(String memberName) {
+    final pascal = _pascalCaseIdentifier(memberName);
+    if (pascal.endsWith('Callback')) {
+      return pascal;
+    }
+    return '${pascal}Callback';
+  }
+
+  String _pascalCaseIdentifier(String source) {
+    final parts = source.split(RegExp(r'[^A-Za-z0-9]+'));
+    final buffer = StringBuffer();
+
+    for (final part in parts) {
+      if (part.isEmpty) {
+        continue;
+      }
+      buffer.write(part[0].toUpperCase());
+      if (part.length > 1) {
+        buffer.write(part.substring(1));
+      }
+    }
+
+    return buffer.isEmpty ? 'Callback' : buffer.toString();
+  }
+
+  void _writeCallbackTypedef(
+    StringBuffer buffer,
+    _CallbackTypedefDecl callback,
+  ) {
+    _writeCommentBlock(buffer, callback.comments);
+    buffer.writeln(
+      'typedef ${_safeTypeIdentifier(callback.name)} = '
+      '${_nativeFunctionSignature(callback.functionType)};',
+    );
+  }
+
   String _rawParameterList(_ZigFunctionDecl function) {
     return function.parameters
         .map(
@@ -1689,6 +1838,18 @@ final class _DartBindingEmitter {
         .join(', ');
     return '$returnType Function($parameters)';
   }
+}
+
+final class _CallbackTypedefDecl {
+  const _CallbackTypedefDecl({
+    required this.name,
+    required this.functionType,
+    this.comments = const <String>[],
+  });
+
+  final String name;
+  final _ZigFunctionTypeRef functionType;
+  final List<String> comments;
 }
 
 const _dartKeywords = <String>{
