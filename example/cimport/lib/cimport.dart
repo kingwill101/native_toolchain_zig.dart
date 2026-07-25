@@ -9,10 +9,6 @@ typedef CImportPoint = c_struct_CImportPoint;
 typedef CImportValue = c_union_CImportValue;
 typedef CImportPacket = c_struct_CImportPacket;
 typedef CImportNode = c_struct_CImportNode;
-typedef CImportFoldCallback =
-    Int32 Function(CImportPoint point, Pointer<Void> user);
-typedef CImportVisitCallback =
-    Void Function(Pointer<CImportPoint> point, Pointer<Void> user);
 
 abstract final class CImportKind {
   static const int invalid = 0;
@@ -39,7 +35,7 @@ class CImportDemo {
       points[0] = cimport_point_make(1, 1);
       points[1] = cimport_point_make(2, 3);
 
-      var callback = NativeCallable<CImportFoldCallback>.isolateGroupBound(
+      var callback = NativeCallable<FoldCallback>.isolateGroupBound(
         (CImportPoint point, Pointer<Void> _) => point.x + point.y,
         exceptionalReturn: 0,
       );
@@ -62,8 +58,8 @@ class CImportDemo {
       var completer = Completer<int>();
       var count = 0;
       var sum = 0;
-      late NativeCallable<CImportVisitCallback> callback;
-      callback = NativeCallable<CImportVisitCallback>.listener((
+      late NativeCallable<VisitCallback> callback;
+      callback = NativeCallable<VisitCallback>.listener((
         Pointer<CImportPoint> point,
         Pointer<Void> _,
       ) {

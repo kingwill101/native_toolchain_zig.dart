@@ -13,13 +13,11 @@ final class c_struct_unnamed_5 extends ffi.Struct {
 
   @ffi.Int64()
   external int origin_id;
-
 }
 
 final class c_struct_unnamed_6 extends ffi.Struct {
   @ffi.Int64()
   external int id;
-
 }
 
 final class c_struct_unnamed_7 extends ffi.Struct {
@@ -27,7 +25,6 @@ final class c_struct_unnamed_7 extends ffi.Struct {
   external int length;
 
   external ffi.Pointer<ffi.Pointer<c_struct__Dart_CObject>> values;
-
 }
 
 final class c_struct_unnamed_8 extends ffi.Struct {
@@ -38,7 +35,6 @@ final class c_struct_unnamed_8 extends ffi.Struct {
   external int length;
 
   external ffi.Pointer<ffi.Uint8> values;
-
 }
 
 final class c_struct_unnamed_9 extends ffi.Struct {
@@ -53,7 +49,6 @@ final class c_struct_unnamed_9 extends ffi.Struct {
   external ffi.Pointer<ffi.Void> peer;
 
   external ffi.Pointer<ffi.Pointer<ffi.Void>> callback;
-
 }
 
 final class c_struct_unnamed_10 extends ffi.Struct {
@@ -64,7 +59,6 @@ final class c_struct_unnamed_10 extends ffi.Struct {
   external int size;
 
   external ffi.Pointer<ffi.Pointer<ffi.Void>> callback;
-
 }
 
 final class c_union_unnamed_4 extends ffi.Union {
@@ -93,7 +87,6 @@ final class c_union_unnamed_4 extends ffi.Union {
   external c_struct_unnamed_9 as_external_typed_data;
 
   external c_struct_unnamed_10 as_native_pointer;
-
 }
 
 final class c_struct__Dart_CObject extends ffi.Struct {
@@ -101,7 +94,6 @@ final class c_struct__Dart_CObject extends ffi.Struct {
   external int type;
 
   external c_union_unnamed_4 value;
-
 }
 
 final class Worker extends ffi.Struct {
@@ -110,7 +102,6 @@ final class Worker extends ffi.Struct {
 
   @ffi.Int64()
   external int send_port;
-
 }
 
 @ffi.Native<ffi.IntPtr Function(ffi.Pointer<ffi.Void>)>(symbol: 'dart_api_init')
@@ -119,11 +110,20 @@ external int dart_api_init(ffi.Pointer<ffi.Void> data);
 @ffi.Native<ffi.Pointer<Worker> Function(ffi.Int64)>(symbol: 'worker_create')
 external ffi.Pointer<Worker> worker_create(int receiver_port);
 
-@ffi.Native<ffi.Pointer<struct__Dart_Handle> Function(ffi.Pointer<Worker>)>(symbol: 'worker_get_send_port')
-external ffi.Pointer<struct__Dart_Handle> worker_get_send_port(ffi.Pointer<Worker> worker);
+@ffi.Native<ffi.Pointer<struct__Dart_Handle> Function(ffi.Pointer<Worker>)>(
+  symbol: 'worker_get_send_port',
+)
+external ffi.Pointer<struct__Dart_Handle> worker_get_send_port(
+  ffi.Pointer<Worker> worker,
+);
 
-@ffi.Native<ffi.Bool Function(ffi.Pointer<Worker>, ffi.Pointer<c_struct__Dart_CObject>)>(symbol: 'worker_post')
-external bool worker_post(ffi.Pointer<Worker> worker, ffi.Pointer<c_struct__Dart_CObject> obj);
+@ffi.Native<
+  ffi.Bool Function(ffi.Pointer<Worker>, ffi.Pointer<c_struct__Dart_CObject>)
+>(symbol: 'worker_post')
+external bool worker_post(
+  ffi.Pointer<Worker> worker,
+  ffi.Pointer<c_struct__Dart_CObject> obj,
+);
 
 @ffi.Native<ffi.Void Function(ffi.Pointer<Worker>)>(symbol: 'worker_close')
 external void worker_close(ffi.Pointer<Worker> worker);
