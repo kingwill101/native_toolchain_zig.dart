@@ -7,14 +7,15 @@ library;
 
 import 'dart:ffi' as ffi;
 
-typedef FoldCallback =
-    ffi.Int32 Function(c_struct_CImportPoint, ffi.Pointer<ffi.Void>);
+typedef FoldCallback = ffi.Int32 Function(
+  c_struct_CImportPoint,
+  ffi.Pointer<ffi.Void>,
+);
 
-typedef VisitCallback =
-    ffi.Void Function(
-      ffi.Pointer<c_struct_CImportPoint>,
-      ffi.Pointer<ffi.Void>,
-    );
+typedef VisitCallback = ffi.Void Function(
+  ffi.Pointer<c_struct_CImportPoint>,
+  ffi.Pointer<ffi.Void>,
+);
 
 final class c_struct_CImportPoint extends ffi.Struct {
   @ffi.Int32()

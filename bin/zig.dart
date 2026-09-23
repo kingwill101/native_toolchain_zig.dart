@@ -41,6 +41,14 @@ Future<void> main(List<String> arguments) async {
           'Defaults to package:<name>/<path-under-lib>.',
     )
     ..addOption(
+      'target',
+      help: 'Zig target triple used when translating C imports.',
+    )
+    ..addOption(
+      'sysroot',
+      help: 'Target C system root passed to `zig translate-c`.',
+    )
+    ..addOption(
       'package-root',
       help: 'Override the package root. Defaults to the current directory.',
       defaultsTo: Directory.current.path,
@@ -100,6 +108,8 @@ Future<void> main(List<String> arguments) async {
     zigDirectory: command['zig-dir'] as String?,
     rootSourceFile: command['root-source-file'] as String?,
     assetId: command['asset-id'] as String?,
+    target: command['target'] as String?,
+    sysroot: command['sysroot'] as String?,
     watch: command['watch'] as bool,
   );
 

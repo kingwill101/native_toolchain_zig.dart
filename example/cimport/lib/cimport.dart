@@ -18,7 +18,7 @@ abstract final class CImportKind {
 }
 
 class CImportDemo {
-  CImportDemo()
+  new()
     : packet = cimport_make_packet(CImportKind.packet, 7, 11),
       head = _buildDemoList();
 

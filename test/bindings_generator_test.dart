@@ -52,6 +52,10 @@ export fn make_point(x: f32, y: f32) Point {
         .y = y,
     };
 }
+
+export fn native_long() c_long {
+    return 0;
+}
 ''');
 
     await generateBindings(
@@ -76,6 +80,10 @@ export fn make_point(x: f32, y: f32) Point {
     expect(generated, contains('Color favorite_color() => '));
     expect(generated, contains('Color.fromValue(_favorite_colorRaw());'));
     expect(generated, contains('final class Point extends ffi.Struct {'));
+    expect(
+      generated,
+      contains("@ffi.Native<ffi.Long Function()>(symbol: 'native_long')"),
+    );
   });
 
   test(
@@ -90,15 +98,12 @@ export fn make_point(x: f32, y: f32) Point {
         }
       });
 
-      await File(
-        path.join(tempDirectory.path, 'pubspec.yaml'),
-      ).writeAsString('name: binding_test_package\n');
-      await Directory(
-        path.join(tempDirectory.path, 'zig', 'src'),
-      ).create(recursive: true);
-      await File(
-        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-      ).writeAsString('''
+      await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+          .writeAsString('name: binding_test_package\n');
+      await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+          .create(recursive: true);
+      await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+          .writeAsString('''
 const Point = extern struct {
     x: i32,
     y: i32,
@@ -139,25 +144,24 @@ export fn make_packet() Packet {
     },
   );
 
-  test('generateBindings emits function pointer callbacks with NativeFunction', () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'native_toolchain_zig_callback_bindings_test_',
-    );
-    addTearDown(() async {
-      if (tempDirectory.existsSync()) {
-        await tempDirectory.delete(recursive: true);
-      }
-    });
+  test(
+    'generateBindings emits function pointer callbacks with NativeFunction',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'native_toolchain_zig_callback_bindings_test_',
+      );
+      addTearDown(() async {
+        if (tempDirectory.existsSync()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
 
-    await File(
-      path.join(tempDirectory.path, 'pubspec.yaml'),
-    ).writeAsString('name: binding_test_package\n');
-    await Directory(
-      path.join(tempDirectory.path, 'zig', 'src'),
-    ).create(recursive: true);
-    await File(
-      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-    ).writeAsString('''
+      await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+          .writeAsString('name: binding_test_package\n');
+      await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+          .create(recursive: true);
+      await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+          .writeAsString('''
 const Callback = ?*const fn (value: i32, user: ?*anyopaque) callconv(.c) i32;
 
 const Holder = extern struct {
@@ -178,48 +182,49 @@ export fn make_holder() Holder {
 }
 ''');
 
-    await generateBindings(
-      ZigBindingsOptions(
-        packageRoot: tempDirectory.path,
-        output: 'lib/src/ffi.g.dart',
-      ),
-    );
+      await generateBindings(
+        ZigBindingsOptions(
+          packageRoot: tempDirectory.path,
+          output: 'lib/src/ffi.g.dart',
+        ),
+      );
 
-    final generated = await File(
-      path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
-    ).readAsString();
+      final generated = await File(
+        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
+      ).readAsString();
 
-    expect(
-      generated,
-      contains(
-        'typedef Callback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
-      ),
-    );
-    expect(
-      generated,
-      contains(
-        'typedef call_callbackCallback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
-      ),
-    );
-    expect(
-      generated,
-      contains(
-        'external ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback;',
-      ),
-    );
-    expect(
-      generated,
-      contains(
-        "@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>>, ffi.Int32, ffi.Pointer<ffi.Void>)>(symbol: 'call_callback')",
-      ),
-    );
-    expect(
-      generated,
-      contains(
-        'external int call_callback(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback, int value, ffi.Pointer<ffi.Void> user);',
-      ),
-    );
-  });
+      expect(
+        generated,
+        contains(
+          'typedef Callback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          'typedef call_callbackCallback = ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>);',
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          'external ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback;',
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          "@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>>, ffi.Int32, ffi.Pointer<ffi.Void>)>(symbol: 'call_callback')",
+        ),
+      );
+      expect(
+        generated,
+        contains(
+          'external int call_callback(ffi.Pointer<ffi.NativeFunction<ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Void>)>> callback, int value, ffi.Pointer<ffi.Void> user);',
+        ),
+      );
+    },
+  );
 
   test('generateBindings emits void callback function pointers', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -231,15 +236,12 @@ export fn make_holder() Holder {
       }
     });
 
-    await File(
-      path.join(tempDirectory.path, 'pubspec.yaml'),
-    ).writeAsString('name: binding_test_package\n');
-    await Directory(
-      path.join(tempDirectory.path, 'zig', 'src'),
-    ).create(recursive: true);
-    await File(
-      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-    ).writeAsString('''
+    await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+        .writeAsString('name: binding_test_package\n');
+    await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+        .create(recursive: true);
+    await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+        .writeAsString('''
 const Point = extern struct {
     x: i32,
     y: i32,
@@ -314,15 +316,12 @@ export fn use_listener(listener: Listener) void {
       }
     });
 
-    await File(
-      path.join(tempDirectory.path, 'pubspec.yaml'),
-    ).writeAsString('name: binding_test_package\n');
-    await Directory(
-      path.join(tempDirectory.path, 'zig', 'src'),
-    ).create(recursive: true);
-    await File(
-      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-    ).writeAsString('''
+    await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+        .writeAsString('name: binding_test_package\n');
+    await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+        .create(recursive: true);
+    await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+        .writeAsString('''
 const Grid = extern struct {
     bytes: [2][3]u8,
 };
@@ -368,15 +367,12 @@ export fn make_grid() Grid {
         }
       });
 
-      await File(
-        path.join(tempDirectory.path, 'pubspec.yaml'),
-      ).writeAsString('name: binding_test_package\n');
-      await Directory(
-        path.join(tempDirectory.path, 'zig', 'src'),
-      ).create(recursive: true);
-      await File(
-        path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-      ).writeAsString('''
+      await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+          .writeAsString('name: binding_test_package\n');
+      await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+          .create(recursive: true);
+      await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+          .writeAsString('''
 const Packed = packed struct {
     a: u8,
     b: u32,
@@ -403,6 +399,82 @@ export fn make_packed() Packed {
 
       expect(generated, contains('@ffi.Packed(1)'));
       expect(generated, contains('final class Packed extends ffi.Struct {'));
+    },
+  );
+
+  test(
+    'generateBindings rejects packed structs with bit-sized fields',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'native_toolchain_zig_packed_bool_test_',
+      );
+      addTearDown(() async {
+        if (tempDirectory.existsSync()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+          .writeAsString('name: binding_test_package\n');
+      await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+          .create(recursive: true);
+      await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+          .writeAsString('''
+const Flags = packed struct { enabled: bool };
+export fn flags() Flags { return .{ .enabled = true }; }
+''');
+
+      await expectLater(
+        generateBindingsSource(
+          ZigBindingsOptions(
+            packageRoot: tempDirectory.path,
+            output: 'lib/src/ffi.g.dart',
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Packed struct Flags'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'generateBindings rejects non-C and implicit callback conventions',
+    () async {
+      for (final convention in ['callconv(.fast)', '']) {
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'native_toolchain_zig_callback_convention_test_',
+        );
+        addTearDown(() async {
+          if (tempDirectory.existsSync()) {
+            await tempDirectory.delete(recursive: true);
+          }
+        });
+
+        await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+            .writeAsString('name: binding_test_package\n');
+        await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+            .create(recursive: true);
+        await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+            .writeAsString('''
+const Callback = *const fn () $convention void;
+export fn register(callback: Callback) void { _ = callback; }
+''');
+
+        await expectLater(
+          generateBindingsSource(
+            ZigBindingsOptions(
+              packageRoot: tempDirectory.path,
+              output: 'lib/src/ffi.g.dart',
+            ),
+          ),
+          throwsA(isA<StateError>()),
+        );
+      }
     },
   );
 
@@ -718,15 +790,12 @@ pub const TextScanOptions = extern struct {
       }
     });
 
-    await File(
-      path.join(tempDirectory.path, 'pubspec.yaml'),
-    ).writeAsString('name: binding_test_package\n');
-    await Directory(
-      path.join(tempDirectory.path, 'zig', 'src'),
-    ).create(recursive: true);
-    await File(
-      path.join(tempDirectory.path, 'zig', 'src', 'root.zig'),
-    ).writeAsString('''
+    await File(path.join(tempDirectory.path, 'pubspec.yaml'))
+        .writeAsString('name: binding_test_package\n');
+    await Directory(path.join(tempDirectory.path, 'zig', 'src'))
+        .create(recursive: true);
+    await File(path.join(tempDirectory.path, 'zig', 'src', 'root.zig'))
+        .writeAsString('''
 const api = @import("api.zig");
 
 const FirstAlias = api.TextScanOptions;
@@ -736,9 +805,8 @@ export fn normalize_options(options: SecondAlias) SecondAlias {
     return options;
 }
 ''');
-    await File(
-      path.join(tempDirectory.path, 'zig', 'src', 'api.zig'),
-    ).writeAsString('''
+    await File(path.join(tempDirectory.path, 'zig', 'src', 'api.zig'))
+        .writeAsString('''
 pub const TextScanOptions = extern struct {
     start: usize,
     end: usize,
