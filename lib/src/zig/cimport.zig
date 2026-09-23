@@ -34,6 +34,7 @@ fn rewriteIncludeCalls(allocator: Allocator, raw: []const u8) anyerror![]const u
             if (depth != 0) return error.UnmatchedParenInInclude;
             try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
             if (pos < raw.len and raw[pos] == ';') pos += 1;
+            try result.append(allocator, '\n');
         } else if (std.mem.startsWith(u8, raw[pos..], "@include(")) {
             try result.appendSlice(allocator, "#include ");
             pos += "@include(".len;
@@ -49,6 +50,7 @@ fn rewriteIncludeCalls(allocator: Allocator, raw: []const u8) anyerror![]const u
             if (depth != 0) return error.UnmatchedParenInInclude;
             try result.appendSlice(allocator, raw[arg_start .. pos - 1]);
             if (pos < raw.len and raw[pos] == ';') pos += 1;
+            try result.append(allocator, '\n');
         } else {
             try result.append(allocator, raw[pos]);
             pos += 1;
@@ -230,6 +232,26 @@ test "runTranslateC translates a simple C header" {
 
     const zig_source = try runTranslateC(allocator, c_abs, test_fs.io, null, null, true);
     try std.testing.expect(std.mem.indexOf(u8, zig_source, "Dart_Port_DL") != null);
+}
+
+test "same-line include calls become separate C directives" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try test_fs.writeFile(tmp.dir, "a.h", "typedef int First;\n");
+    try test_fs.writeFile(tmp.dir, "b.h", "typedef long Second;\n");
+    const source = "@cImport({ @cInclude(\"a.h\"); @include(\"b.h\"); })";
+    const body = (try cImportBodySource(allocator, source)) orelse return error.TestExpectedEqual;
+    try std.testing.expect(std.mem.indexOf(u8, body, "#include \"a.h\"\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, body, "#include \"b.h\"\n") != null);
+    try test_fs.writeFile(tmp.dir, "test.c", body);
+    const temp_abs = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
+    const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "test.c" });
+    const translated = try runTranslateC(allocator, c_abs, test_fs.io, null, null, false);
+    try std.testing.expect(std.mem.indexOf(u8, translated, "First") != null);
+    try std.testing.expect(std.mem.indexOf(u8, translated, "Second") != null);
 }
 
 test "runTranslateC accepts an explicit target and sysroot" {
