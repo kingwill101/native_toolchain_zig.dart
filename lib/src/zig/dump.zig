@@ -1,6 +1,6 @@
 //! Extracts exported Zig declarations for Dart FFI binding generation.
-const model = @import("zig_api_dump_model.zig");
-const extractor = @import("zig_api_dump_extractor.zig");
+const model = @import("model.zig");
+const extractor = @import("extractor.zig");
 
 /// The normalized API metadata returned by [extractDocument].
 pub const Document = model.Document;
@@ -9,7 +9,7 @@ pub const Document = model.Document;
 pub const extractDocument = extractor.extractDocument;
 
 test {
-    _ = @import("zig_api_dump_comments.zig");
-    _ = @import("zig_api_dump_cimport.zig");
-    _ = @import("zig_api_dump_extractor_test.zig");
+    _ = @import("comments.zig");
+    _ = @import("cimport.zig");
+    _ = @import("extractor_test.zig");
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const dump = @import("zig_api_dump.zig");
+const dump = @import("dump.zig");
 
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,7 +13,7 @@ pub fn main() !void {
     ) catch |err| switch (err) {
         error.EnvironmentVariableNotFound => {
             std.debug.print(
-                "usage: set NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE and run zig_api_dump_015.zig\n",
+                "usage: set NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE and run dump_015.zig\n",
                 .{},
             );
             return error.InvalidArguments;

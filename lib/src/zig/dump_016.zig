@@ -1,11 +1,11 @@
 const std = @import("std");
 
-const dump = @import("zig_api_dump.zig");
+const dump = @import("dump.zig");
 
 pub fn main(init: std.process.Init) !void {
     const root_source_file = init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE") orelse {
         std.debug.print(
-            "usage: set NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE and run zig_api_dump_016.zig\n",
+            "usage: set NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE and run dump_016.zig\n",
             .{},
         );
         return error.InvalidArguments;

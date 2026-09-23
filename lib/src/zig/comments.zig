@@ -1,7 +1,7 @@
 //! Extracts and normalizes Zig source comments for API metadata.
 const std = @import("std");
 const Ast = std.zig.Ast;
-const model = @import("zig_api_dump_model.zig");
+const model = @import("model.zig");
 
 const Allocator = std.mem.Allocator;
 const CommentLines = model.CommentLines;

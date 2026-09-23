@@ -1,8 +1,8 @@
 //! End-to-end and type-resolution tests for the Zig API extractor.
 const std = @import("std");
-const model = @import("zig_api_dump_model.zig");
-const extractor = @import("zig_api_dump_extractor.zig");
-const type_support = @import("zig_api_dump_types.zig");
+const model = @import("model.zig");
+const extractor = @import("extractor.zig");
+const type_support = @import("types.zig");
 const Allocator = std.mem.Allocator;
 const canonicalizeTypeSource = type_support.canonicalizeTypeSource;
 const RawAliasDecl = type_support.RawAliasDecl;

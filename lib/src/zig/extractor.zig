@@ -1,10 +1,10 @@
 //! Traverses Zig modules and collects their exported ABI declarations.
 const std = @import("std");
 const Ast = std.zig.Ast;
-const model = @import("zig_api_dump_model.zig");
-const comments = @import("zig_api_dump_comments.zig");
-const c_import = @import("zig_api_dump_cimport.zig");
-const type_support = @import("zig_api_dump_types.zig");
+const model = @import("model.zig");
+const comments = @import("comments.zig");
+const c_import = @import("cimport.zig");
+const type_support = @import("types.zig");
 const canonicalizeTypeSource = type_support.canonicalizeTypeSource;
 const RawAliasDecl = type_support.RawAliasDecl;
 

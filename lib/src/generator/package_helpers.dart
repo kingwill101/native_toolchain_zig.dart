@@ -5,8 +5,8 @@ part of '../bindings_generator.dart';
 Future<String> _helperScriptPath() async {
   final zigVersion = await _zigVersion();
   final helperName = _isAtLeastZigVersion(zigVersion, 0, 16, 0)
-      ? 'zig_api_dump_016.zig'
-      : 'zig_api_dump_015.zig';
+      ? 'dump_016.zig'
+      : 'dump_015.zig';
 
   final helperUri = await Isolate.resolvePackageUri(
     Uri.parse('package:native_toolchain_zig/src/zig/$helperName'),
