@@ -130,31 +130,24 @@ final class DartBindingEmitter {
   }
 
   void _writeCompoundType(StringBuffer buffer, ZigTypeDecl type) {
+    if (type.layout == 'packed') {
+      throw StateError(
+        'Packed struct ${type.name} is unsupported: its backing-integer size, '
+        'alignment, and calling convention cannot be preserved by Dart FFI.',
+      );
+    }
+
     if (!type.isExternContainer) {
       throw StateError(
         'Type ${type.name} must be declared as `extern ${switch (type.kind) {
           ZigContainerKind.structType => 'struct',
           ZigContainerKind.unionType => 'union',
           ZigContainerKind.enumType => 'enum',
-        }}` or `packed struct` to participate in the generated ABI surface.',
-      );
-    }
-
-    if (type.layout == 'packed' &&
-        type.members.any(
-          (member) => !_isByteRepresentablePackedMember(member.type),
-        )) {
-      throw StateError(
-        'Packed struct ${type.name} contains a field whose bit layout cannot '
-        'be represented by Dart FFI. Packed fields must have byte-aligned '
-        'primitive or array layouts.',
+        }}` to participate in the generated ABI surface.',
       );
     }
 
     _writeCommentBlock(buffer, type.comments);
-    if (type.kind == ZigContainerKind.structType && type.layout == 'packed') {
-      buffer.writeln('@ffi.Packed(1)');
-    }
     buffer.writeln(
       'final class ${_safeTypeIdentifier(type.name)} extends ffi.'
       '${switch (type.kind) {
@@ -207,29 +200,6 @@ final class DartBindingEmitter {
     }
 
     buffer.writeln('}');
-  }
-
-  bool _isByteRepresentablePackedMember(ZigTypeRef? type) {
-    if (type is ZigPrimitiveTypeRef) {
-      return type.name != 'bool' &&
-          type.name != 'void' &&
-          type.name != 'anyopaque' &&
-          type.name != 'c_longdouble';
-    }
-    if (type is ZigArrayTypeRef) {
-      return _isByteRepresentablePackedMember(type.child);
-    }
-    if (type is ZigNamedTypeRef) {
-      final declaration = api.typeDeclForName(type.name);
-      if (declaration?.kind == ZigContainerKind.enumType) {
-        return _isByteRepresentablePackedMember(declaration!.tagType);
-      }
-      return declaration?.layout == 'packed' &&
-          declaration!.members.every(
-            (member) => _isByteRepresentablePackedMember(member.type),
-          );
-    }
-    return false;
   }
 
   void _writeGlobal(StringBuffer buffer, ZigGlobalDecl global) {
@@ -669,8 +639,8 @@ final class DartBindingEmitter {
 
     while (true) {
       switch (current) {
-        case ZigArrayTypeRef(:final count, :final child):
-          dimensions.add(count);
+        case ZigArrayTypeRef(:final count, :final sentinelSource, :final child):
+          dimensions.add(count + (sentinelSource == null ? 0 : 1));
           current = child;
         default:
           return dimensions;

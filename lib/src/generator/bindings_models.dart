@@ -55,25 +55,25 @@ final class ZigApiDescription {
   };
 
   /// Finds a type named [name], including names qualified by C import aliases.
+  ///
+  /// Exact names take precedence. A suffix match is accepted only when unique;
+  /// ambiguous matches throw [StateError] rather than select an ABI layout.
   ZigTypeDecl? typeDeclForName(String name) {
-    for (final candidateName in [
-      'c_struct_$name',
-      'c_union_$name',
-      'c_enum_$name',
-    ]) {
-      final candidate = typesByName[candidateName];
-      if (candidate != null) {
-        return candidate;
-      }
+    final exact = typesByName[name];
+    if (exact != null) {
+      return exact;
     }
 
-    for (final type in types) {
-      if (type.name != name && type.name.endsWith('_$name')) {
-        return type;
-      }
+    final candidates = types
+        .where((type) => type.name.endsWith('_$name'))
+        .toList();
+    if (candidates.length > 1) {
+      throw StateError(
+        'Ambiguous Zig type $name: ${candidates.map((type) => type.name).join(', ')}. '
+        'Use a fully qualified type name.',
+      );
     }
-
-    return typesByName[name];
+    return candidates.isEmpty ? null : candidates.single;
   }
 
   /// Types referenced by exported declarations, including nested field types.
@@ -200,9 +200,7 @@ final class ZigTypeDecl {
 
   /// Whether this container has a layout the generator can expose to FFI.
   bool get isExternContainer =>
-      kind == ZigContainerKind.enumType ||
-      layout == 'extern' ||
-      (kind == ZigContainerKind.structType && layout == 'packed');
+      kind == ZigContainerKind.enumType || layout == 'extern';
 
   /// Enum cases with their resolved integer values.
   List<ZigEnumCase> get enumCases {

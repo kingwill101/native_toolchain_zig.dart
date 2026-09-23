@@ -356,7 +356,7 @@ export fn make_grid() Grid {
   });
 
   test(
-    'generateBindings emits packed structs with Packed annotation',
+    'generateBindings rejects packed structs with byte-sized fields',
     () async {
       final tempDirectory = await Directory.systemTemp.createTemp(
         'native_toolchain_zig_packed_bindings_test_',
@@ -386,19 +386,21 @@ export fn make_packed() Packed {
 }
 ''');
 
-      await generateBindings(
-        ZigBindingsOptions(
-          packageRoot: tempDirectory.path,
-          output: 'lib/src/ffi.g.dart',
+      await expectLater(
+        generateBindings(
+          ZigBindingsOptions(
+            packageRoot: tempDirectory.path,
+            output: 'lib/src/ffi.g.dart',
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Packed struct Packed'),
+          ),
         ),
       );
-
-      final generated = await File(
-        path.join(tempDirectory.path, 'lib', 'src', 'ffi.g.dart'),
-      ).readAsString();
-
-      expect(generated, contains('@ffi.Packed(1)'));
-      expect(generated, contains('final class Packed extends ffi.Struct {'));
     },
   );
 

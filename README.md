@@ -255,14 +255,16 @@ register the native library before executing the program.
 
 The supported ABI surface includes exported functions and globals, reachable
 `extern struct` and `extern union` types, explicitly tagged enums, pointers,
-fixed-size array fields (including nested arrays), and C function pointers.
+fixed-size array fields (including nested and sentinel-terminated arrays), and
+C function pointers.
 Aliases and declarations reached through local `.zig` imports are resolved, and
 source comments are carried into generated Dart documentation.
 
 Function pointer types must use `callconv(.c)`. Generated callback typedefs can
 be used with Dart FFI callback APIs; see the cImport example for callable and
-listener callbacks. Packed structs are supported only when their fields have
-byte-aligned layouts representable by Dart FFI.
+listener callbacks. Zig `packed struct` types are rejected because their
+backing-integer size, alignment, and calling convention are not preserved by
+Dart FFI packed structs. Use an `extern struct` for the exported interface.
 
 This is a source-based extractor, not a full evaluator of arbitrary Zig code.
 Package-name imports and dynamically computed import paths are not followed.
