@@ -1,3 +1,20 @@
+## 0.2.1
+
+- Add `@cImport` bindings support, including local header discovery and resolution
+  of translated C types used by exported Zig declarations.
+- Add `--target` and `--sysroot` CLI options and matching `ZigBindingsOptions`
+  fields for target-specific C translation.
+- Support C function pointer callbacks, including callbacks returning `void`.
+- Fix fixed-size array field emission and support multidimensional arrays.
+- Reject unsupported callback calling conventions and packed struct bit layouts
+  with explicit errors.
+- Add the cImport stress example covering nested headers, structs, unions,
+  arrays, pointer chains, and callable/listener callbacks.
+- Split the Dart generator and Zig extractor into focused modules and expand
+  generator API documentation.
+- Make the Zig test fixtures compatible with Zig 0.15 and 0.16, and run CI on
+  Zig 0.15.2 and 0.16.0.
+
 ## 0.2.0
 
 - Add a Zig source generator that emits Dart `@Native` FFI bindings from
