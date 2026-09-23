@@ -16,8 +16,7 @@ C header for your exported Zig functions.
 
 - Dart SDK **3.13.0 or later**, within the Dart 3 release series.
 - [Zig][zig_download] installed and available as `zig` on `PATH`.
-  CI covers **Zig 0.15.2 and 0.16.0**. The metadata extractor selects the matching
-  version-specific entrypoint automatically.
+  CI covers **Zig 0.15.2 and 0.16.0**.
 
 ### Installation
 
@@ -84,98 +83,9 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-<details>
-<summary><strong>Build both static and dynamic libraries</strong></summary>
-
-To produce both library types in a single build:
-
-```zig
-const std = @import("std");
-
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
-    const root_module = b.createModule(.{
-        .root_source_file = b.path("src/lib.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // Dynamic library (.so, .dylib, .dll)
-    const dynamic_lib = b.addLibrary(.{
-        .name = "my_package",
-        .linkage = .dynamic,
-        .root_module = root_module,
-    });
-
-    b.installArtifact(dynamic_lib);
-
-    // Static library (.a, .lib)
-    const static_lib = b.addLibrary(.{
-        .name = "my_package",
-        .linkage = .static,
-        .root_module = root_module,
-    });
-
-    b.installArtifact(static_lib);
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Select linkage via command line</strong></summary>
-
-To control linkage type via a custom `-Dlinkage` option, first accept it in
-your `build.zig`:
-
-```zig
-const std = @import("std");
-
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
-    const linkage = b.option(
-        std.builtin.LinkMode,
-        "linkage",
-        "Library linkage type",
-    ) orelse .dynamic;
-
-    const lib = b.addLibrary(.{
-        .name = "my_package",
-        .linkage = linkage,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/lib.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-
-    b.installArtifact(lib);
-}
-```
-
-Then pass the flag from Dart via `extraArguments` in `hook/build.dart`:
-
-```dart
-import 'package:hooks/hooks.dart';
-import 'package:native_toolchain_zig/native_toolchain_zig.dart';
-
-Future<void> main(List<String> arguments) async {
-  await build(arguments, (input, output) async {
-    await ZigBuilder(
-      assetName: 'my_package.dart',
-      zigDir: 'zig/',
-      // Forward the linkage option to zig build
-      extraArguments: ['-Dlinkage=static'],
-    ).run(input: input, output: output);
-  });
-}
-```
-
-</details>
+For a build that produces both static and dynamic libraries, see the
+[bindings example's build script][bindings_build]. Custom build options can be
+passed through `ZigBuilder.extraArguments`.
 
 4. Create `zig/build.zig.zon`:
 
@@ -223,19 +133,10 @@ dart run native_toolchain_zig:zig bindings --output lib/my_package.dart
 The generator discovers exported Zig declarations and emits Dart `@Native`
 bindings that use the same native asset ID registered by `ZigBuilder`.
 
-You can also pass explicit paths:
+During development, regenerate automatically when source files change:
 
 ```bash
-dart run native_toolchain_zig:zig bindings \
-  --zig-dir zig \
-  --root-source-file src/lib.zig \
-  --output lib/my_package.dart
-```
-
-During development, use watch mode:
-
-```bash
-dart run native_toolchain_zig:zig bindings --watch
+dart run native_toolchain_zig:zig bindings --output lib/my_package.dart --watch
 ```
 
 7. Create `bin/main.dart` and call the generated bindings:
@@ -253,90 +154,34 @@ register the native library before executing the program.
 
 ## Binding generation
 
-The supported ABI surface includes exported functions and globals, reachable
-`extern struct` and `extern union` types, explicitly tagged enums, pointers,
-fixed-size array fields (including nested and sentinel-terminated arrays), and
-C function pointers.
-Aliases and declarations reached through local `.zig` imports are resolved, and
-source comments are carried into generated Dart documentation.
-
-Function pointer types must use `callconv(.c)`. Generated callback typedefs can
-be used with Dart FFI callback APIs; see the cImport example for callable and
-listener callbacks. Zig `packed struct` types are rejected because their
-backing-integer size, alignment, and calling convention are not preserved by
-Dart FFI packed structs. Use an `extern struct` for the exported interface.
-
-This is a source-based extractor, not a full evaluator of arbitrary Zig code.
-Package-name imports and dynamically computed import paths are not followed.
-Keep the exported interface representable by Dart FFI; unsupported types or
-calling conventions produce generation errors.
-
-### Asset IDs and output paths
-
-The default output is `lib/src/ffi.g.dart`. Its generated `@DefaultAsset` value
-is inferred from the package name and the output path under `lib/`. For example,
-`lib/src/ffi.g.dart` in `my_package` uses `package:my_package/src/ffi.g.dart`.
-Configure `ZigBuilder(assetName: 'src/ffi.g.dart', zigDir: 'zig')` to register that
-same asset. If the Zig library name differs from the Dart package name, also set
-`libraryName` to the name declared in `build.zig`.
-
-Use `--asset-id` when the generated file should refer to an asset registered
-under a different name. Binding generation and native compilation are separate
-steps: rerun the CLI (or use `--watch`) when the exported interface changes.
+The generator supports exported functions and globals, `extern` structs and
+unions, tagged enums, pointers, arrays, and C callbacks. It follows local Zig
+imports and carries source comments into the generated Dart documentation.
+Unsupported ABI types produce generation errors.
 
 ### C imports
 
-Generate bindings for Zig exports that use local C headers through `@cImport`:
+Bindings can also use types from C headers imported through Zig's `@cImport`.
+See the **[C imports guide][c_imports]** for setup, header discovery, libc
+configuration, cross-compilation, callbacks, ABI limitations, and troubleshooting.
+The [cImport example][cimport_example] demonstrates these features together.
 
-```bash
-dart run native_toolchain_zig:zig bindings --package-root example/cimport --output lib/ffi.g.dart
-```
+### Asset IDs
 
-See the [C imports guide](https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/doc/c_imports.md) for header discovery, libc settings,
-cross-compilation, callbacks, and troubleshooting, or explore the
-[cImport stress example](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/cimport).
+The generated asset ID must match the build hook. For example,
+`lib/src/ffi.g.dart` uses `ZigBuilder(assetName: 'src/ffi.g.dart', zigDir: 'zig')`.
+Set `libraryName` if the Zig library name differs from the Dart package name.
+Use `--asset-id` to override the generated ID.
 
-### CLI options
+### CLI and Dart API
 
-| Option | Purpose |
-| --- | --- |
-| `--output`, `-o` | Generated Dart file; defaults to `lib/src/ffi.g.dart`. |
-| `--zig-dir` | Zig project directory; otherwise discovers `zig/`, `native/`, or `src/`. |
-| `--root-source-file` | Source path relative to the Zig directory; otherwise inferred from `build.zig` or common source locations. |
-| `--package-root` | Dart package root; defaults to the current directory. |
-| `--asset-id` | Override the generated native asset ID. |
-| `--target` | Zig target triple passed to C translation. |
-| `--sysroot` | Target system root passed to C translation. |
-| `--[no-]link-libc` | Override libc header support; otherwise inferred from the selected module in `build.zig`. |
-| `--watch`, `-w` | Regenerate when files under the Zig directory change. |
-| `--help`, `-h` | Show command usage. |
+Run `dart run native_toolchain_zig:zig bindings --help` for all CLI options.
+C translation options (`--target`, `--sysroot`, and `--[no-]link-libc`) are
+explained in the [C imports guide][c_imports].
 
-Watch mode polls the Zig directory and excludes `.zig-cache`, `zig-out`,
-generator intermediates, temporary probe wrappers, and the configured output file.
-Changes to files outside that directory require explicit regeneration.
-
-### Dart API
-
-The same generator is available through the package's public library:
-
-```dart
-import 'package:native_toolchain_zig/native_toolchain_zig.dart';
-
-Future<void> main() async {
-  await generateBindings(
-    ZigBindingsOptions(
-      packageRoot: '.',
-      zigDirectory: 'zig',
-      rootSourceFile: 'src/lib.zig',
-      output: 'lib/my_package.dart',
-    ),
-  );
-}
-```
-
-Use `generateBindingsSource` to obtain the generated source, asset ID,
-dependencies, and declaration counts without writing a file. `watchBindings`
-provides continuous regeneration.
+The public Dart API provides `generateBindings`, `generateBindingsSource`, and
+`watchBindings`, configured through `ZigBindingsOptions`.
+See the [API documentation][api_docs] for usage and configuration details.
 
 ## Examples
 
@@ -393,3 +238,8 @@ MIT License - see [LICENSE](https://github.com/ykmnkmi/native_toolchain_zig.dart
 
 [dart_hooks]: https://dart.dev/tools/hooks
 [zig_download]: https://ziglang.org/download/
+
+[c_imports]: https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/doc/c_imports.md
+[cimport_example]: https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/cimport
+[bindings_build]: https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/example/bindings/zig/build.zig
+[api_docs]: https://pub.dev/documentation/native_toolchain_zig/latest/native_toolchain_zig/
