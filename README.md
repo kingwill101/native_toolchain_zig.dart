@@ -213,14 +213,6 @@ CI runs the checks on Zig 0.15.2 and 0.16.0. Its Dart test command is
 `dart test -P ci`, which excludes tests tagged `fails-on-ci`; use `dart test`
 locally for the unfiltered suite.
 
-API documentation embeds marked regions from the maintained examples using
-Dartdoc's `{@example}` directive. Generate and validate it with:
-
-```bash
-dart pub global activate dartdoc 9.0.9
-dart pub global run dartdoc --output .dart_tool/doc_preview --validate-links
-```
-
 ## License
 
 MIT License - see [LICENSE](https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/LICENSE) for details.
