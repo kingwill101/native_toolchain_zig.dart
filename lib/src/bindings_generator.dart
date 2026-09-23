@@ -18,6 +18,9 @@ part 'generator/primitive_types.dart';
 part 'generator/dart_binding_emitter.dart';
 
 /// Configuration for generating Dart FFI bindings from a Zig package.
+///
+/// Paths are resolved relative to [packageRoot]. Generation requires `zig` on
+/// `PATH`; the generated asset ID must match the native build hook's asset.
 final class ZigBindingsOptions {
   /// Creates a bindings generation request.
   const new({
@@ -36,21 +39,37 @@ final class ZigBindingsOptions {
   final String packageRoot;
 
   /// Output Dart file path, absolute or relative to [packageRoot].
+  ///
+  /// Must remain inside [packageRoot]. Outputs outside `lib/` require [assetId].
+  /// [generateBindingsSource] uses this path to infer metadata without writing it.
   final String output;
 
   /// Optional Zig project directory, absolute or relative to [packageRoot].
+  ///
+  /// When omitted, searches `zig/`, `native/`, then `src/`.
   final String? zigDirectory;
 
   /// Optional Zig root source file, absolute or relative to [zigDirectory].
+  ///
+  /// When omitted, checks `build.zig` and common root source paths.
   final String? rootSourceFile;
 
   /// Optional override for the generated `@DefaultAsset(...)` import ID.
+  ///
+  /// Defaults to `package:<package-name>/<output-path-under-lib>`. This ID must
+  /// match the asset registered by the native build hook.
   final String? assetId;
 
   /// Optional Zig target triple used when translating imported C declarations.
+  ///
+  /// Also selects the target for the libc probe. Does not configure the build
+  /// hook; regenerate bindings when the native library's target ABI changes.
   final String? target;
 
   /// Optional target C system root used when translating imported C headers.
+  ///
+  /// Points to an installed target SDK containing its headers and libraries.
+  /// Local project headers usually do not require this option.
   final String? sysroot;
 
   /// Whether C translation should enable libc headers.
@@ -59,9 +78,14 @@ final class ZigBindingsOptions {
   /// `@import("builtin").link_libc` with the selected module's configuration.
   /// Defaults to false when there is no build file. An explicit value skips
   /// the probe.
+  ///
+  /// {@example /example/cimport/zig/build.zig#c-module lang=zig}
   final bool? linkLibc;
 
-  /// Whether to keep watching the Zig directory and regenerate on changes.
+  /// Whether the CLI should watch the Zig directory for changes.
+  ///
+  /// Direct calls to [generateBindings] always generate once. Use [watchBindings]
+  /// for continuous regeneration through the Dart API.
   final bool watch;
 }
 
@@ -91,7 +115,10 @@ final class GeneratedBindingsResult {
   /// Generated Dart source code.
   final String source;
 
-  /// Zig source files that influenced the generated output.
+  /// Zig source paths visited during extraction.
+  ///
+  /// May include generated C translation files. This list is not a complete
+  /// dependency graph of C headers.
   final List<String> dependencies;
 
   /// Number of exported functions discovered.
@@ -104,7 +131,16 @@ final class GeneratedBindingsResult {
   final int reachableTypeCount;
 }
 
-/// Generates bindings once for the supplied Zig package.
+/// Generates bindings once and writes the Dart source to [ZigBindingsOptions.output].
+///
+/// Creates missing output directories and replaces an existing output file.
+/// Use [generateBindingsSource] to inspect the result before writing it.
+/// Throws [StateError] for unsupported ABI types or invalid paths, and
+/// [ProcessException] when Zig extraction or C translation fails.
+///
+/// For C imports, the source can use local headers as in the cImport example:
+///
+/// {@example /example/cimport/zig/src/lib.zig#c-import lang=zig}
 Future<void> generateBindings(
   ZigBindingsOptions options, {
   Logger? logger,
@@ -125,7 +161,14 @@ Future<void> generateBindings(
     ..writeln('Wrote ${result.outputPath}');
 }
 
-/// Regenerates bindings whenever files under the Zig directory change.
+/// Regenerates bindings when source files under the Zig directory change.
+///
+/// Generates once, then polls every [pollInterval]. Ignores Zig caches,
+/// generator intermediates, and [ZigBindingsOptions.output]. Headers outside the Zig
+/// directory require explicit regeneration.
+///
+/// The returned future runs until the process stops. Initial generation errors
+/// propagate; later errors are reported to standard error and watching continues.
 Future<void> watchBindings(
   ZigBindingsOptions options, {
   Logger? logger,
@@ -164,7 +207,12 @@ Future<void> watchBindings(
   }
 }
 
-/// Generates bindings and returns the rendered source plus dependency metadata.
+/// Returns generated Dart source, asset identity, and declaration metadata.
+///
+/// Does not write [ZigBindingsOptions.output]. Zig may create caches and
+/// intermediate translation files during extraction. Throws [StateError] for
+/// unsupported ABI types or invalid paths, and [ProcessException] for failed
+/// Zig commands. [logger] receives extraction progress messages.
 Future<GeneratedBindingsResult> generateBindingsSource(
   ZigBindingsOptions options, {
   Logger? logger,

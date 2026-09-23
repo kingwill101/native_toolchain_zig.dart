@@ -29,6 +29,7 @@ class CImportDemo {
     cimport_node_destroy(head);
   }
 
+  // #region callback-lifetime
   int foldPoints() {
     var points = calloc<CImportPoint>(2);
     try {
@@ -48,6 +49,8 @@ class CImportDemo {
       calloc.free(points);
     }
   }
+
+  // #endregion
 
   Future<int> visitPoints() async {
     var points = calloc<CImportPoint>(2);

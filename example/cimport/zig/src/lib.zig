@@ -1,8 +1,10 @@
 const std = @import("std");
 
+// #region c-import
 const c = @cImport({
     @cInclude("cimport_stress.h");
 });
+// #endregion
 
 const allocator = std.heap.c_allocator;
 

@@ -9,6 +9,7 @@ Future<void> main(List<String> args) async {
       print('${logRecord.level.name}: ${logRecord.message}');
     });
 
+  // #region build-hook
   await build(args, (input, output) async {
     await ZigBuilder(
       assetName: 'ffi.g.dart',
@@ -16,4 +17,5 @@ Future<void> main(List<String> args) async {
       zigDir: 'zig',
     ).run(input: input, output: output, logger: Logger('bindings'));
   });
+  // #endregion
 }

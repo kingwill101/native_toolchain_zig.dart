@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // #region c-module
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
@@ -13,6 +14,7 @@ pub fn build(b: *std.Build) void {
     });
 
     root_module.addIncludePath(b.path("include"));
+    // #endregion
 
     const dynamic_lib = b.addLibrary(.{
         .name = "cimport",
