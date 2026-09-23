@@ -134,7 +134,11 @@ Future<void> watchBindings(
   logger ??= _createLogger();
 
   var zigDirectory = _resolveZigDirectory(options);
-  var lastFingerprint = _directoryFingerprint(zigDirectory);
+  var outputPath = _resolveOutputPath(
+    packageRoot: path.normalize(path.absolute(options.packageRoot)),
+    output: options.output,
+  );
+  var lastFingerprint = _directoryFingerprint(zigDirectory, outputPath);
 
   await generateBindings(options, logger: logger);
   stdout.writeln('Watching ${zigDirectory.path} for Zig binding changes...');
@@ -142,7 +146,7 @@ Future<void> watchBindings(
   while (true) {
     await Future<void>.delayed(pollInterval);
 
-    var currentFingerprint = _directoryFingerprint(zigDirectory);
+    var currentFingerprint = _directoryFingerprint(zigDirectory, outputPath);
     if (currentFingerprint == lastFingerprint) {
       continue;
     }

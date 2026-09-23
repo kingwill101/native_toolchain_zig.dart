@@ -1,5 +1,6 @@
 ## 0.2.1
 
+- Prevent generated files and nested Zig caches from retriggering watch mode.
 - Detect libc header support for C imports with a Zig comptime check using the
   selected build module's configuration, with CLI and Dart API overrides.
 - Stop tracking generated `.zigchain_cimport` intermediate files.

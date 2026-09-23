@@ -330,7 +330,8 @@ build configuration. Regenerate target-dependent bindings when changing ABI.
 | `--watch`, `-w` | Regenerate when files under the Zig directory change. |
 | `--help`, `-h` | Show command usage. |
 
-Watch mode polls the Zig directory and excludes `.zig-cache` and `zig-out`.
+Watch mode polls the Zig directory and excludes `.zig-cache`, `zig-out`,
+generator intermediates, temporary probe wrappers, and the configured output file.
 Changes to files outside that directory require explicit regeneration.
 
 ### Dart API

@@ -251,7 +251,7 @@ String _readPackageName(String packageRoot) {
   return match.group(1)!;
 }
 
-String _directoryFingerprint(Directory root) {
+String _directoryFingerprint(Directory root, String outputPath) {
   final files = <String>[];
   final pending = <Directory>[root];
 
@@ -260,9 +260,14 @@ String _directoryFingerprint(Directory root) {
 
     for (final entity in current.listSync(followLinks: false)) {
       final relativePath = path.relative(entity.path, from: root.path);
-      final firstSegment = path.split(relativePath).first;
+      final name = path.basename(entity.path);
 
-      if (_ignoredWatchDirectories.contains(firstSegment)) {
+      if (_ignoredWatchDirectories.contains(name) ||
+          name == '.zigchain_cimport.zig' ||
+          name == '.zigchain_cimport_source.c' ||
+          (name.startsWith('.zigchain_probe_') &&
+              (name.endsWith('.zig') || name.endsWith('.zig.zon'))) ||
+          path.equals(entity.path, outputPath)) {
         continue;
       }
 
