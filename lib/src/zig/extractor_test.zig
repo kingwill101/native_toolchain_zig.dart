@@ -1,5 +1,6 @@
 //! End-to-end and type-resolution tests for the Zig API extractor.
 const std = @import("std");
+const test_fs = @import("test_fs.zig");
 const model = @import("model.zig");
 const extractor = @import("extractor.zig");
 const type_support = @import("types.zig");
@@ -87,15 +88,12 @@ fn collectTestDocument(
 
     for (files) |file| {
         if (std.fs.path.dirname(file.path)) |dirname| {
-            try tmp.dir.makePath(dirname);
+            try test_fs.makePath(tmp.dir, dirname);
         }
-        try tmp.dir.writeFile(.{
-            .sub_path = file.path,
-            .data = file.contents,
-        });
+        try test_fs.writeFile(tmp.dir, file.path, file.contents);
     }
 
-    const temp_root = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const temp_root = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
     const absolute_root_source_file = try std.fs.path.join(
         allocator,
         &.{ temp_root, root_source_file },
@@ -104,7 +102,7 @@ fn collectTestDocument(
     return extractor.extractDocument(
         allocator,
         absolute_root_source_file,
-        {},
+        test_fs.io,
         null,
         null,
     );
@@ -517,27 +515,26 @@ test "Extractor.collect resolves @cImport types from fixture directory" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     {
-        var fixture_dir_handle = try std.fs.cwd().openDir(fixture_dir, .{ .iterate = true });
-        defer fixture_dir_handle.close();
-        var iter = fixture_dir_handle.iterate();
-        while (try iter.next()) |entry| {
-            if (entry.kind != .file) continue;
-            const content = try fixture_dir_handle.readFileAlloc(
+        var fixture_dir_handle = try test_fs.openDir(fixture_dir, .{});
+        defer test_fs.close(&fixture_dir_handle);
+        inline for (.{ "lib.zig", "simple.h" }) |name| {
+            const content = try test_fs.readFileAlloc(
+                fixture_dir_handle,
+                name,
                 allocator,
-                entry.name,
                 1024 * 1024,
             );
-            try tmp.dir.writeFile(.{ .sub_path = entry.name, .data = content });
+            try test_fs.writeFile(tmp.dir, name, content);
         }
     }
 
-    const temp_abs = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const temp_abs = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
     const root_abs = try std.fs.path.join(allocator, &.{ temp_abs, "lib.zig" });
 
     const document = try extractor.extractDocument(
         allocator,
         root_abs,
-        {},
+        test_fs.io,
         "aarch64-linux-gnu",
         null,
     );

@@ -1,5 +1,6 @@
 //! Prepares C imports and translates C declarations to Zig.
 const std = @import("std");
+const test_fs = @import("test_fs.zig");
 const Allocator = std.mem.Allocator;
 
 fn pathExistsCompat(io: anytype, file_path: []const u8) bool {
@@ -217,13 +218,13 @@ test "runTranslateC translates a simple C header" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{ .sub_path = "simple.h", .data = "typedef long Dart_Port_DL;\n" });
+    try test_fs.writeFile(tmp.dir, "simple.h", "typedef long Dart_Port_DL;\n");
 
-    const temp_abs = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const temp_abs = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
     const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "test.c" });
-    try tmp.dir.writeFile(.{ .sub_path = "test.c", .data = "#include \"simple.h\"\n" });
+    try test_fs.writeFile(tmp.dir, "test.c", "#include \"simple.h\"\n");
 
-    const zig_source = try runTranslateC(allocator, c_abs, {}, null, null);
+    const zig_source = try runTranslateC(allocator, c_abs, test_fs.io, null, null);
     try std.testing.expect(std.mem.indexOf(u8, zig_source, "Dart_Port_DL") != null);
 }
 
@@ -236,14 +237,14 @@ test "runTranslateC accepts an explicit target and sysroot" {
     defer tmp.cleanup();
 
     const source = "#include <stdint.h>\ntypedef uint64_t TargetValue;\n";
-    try tmp.dir.writeFile(.{ .sub_path = "target.c", .data = source });
+    try test_fs.writeFile(tmp.dir, "target.c", source);
 
-    const temp_abs = try tmp.parent_dir.realpathAlloc(allocator, &tmp.sub_path);
+    const temp_abs = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
     const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "target.c" });
     const zig_source = try runTranslateC(
         allocator,
         c_abs,
-        {},
+        test_fs.io,
         "aarch64-linux-gnu",
         "/",
     );
