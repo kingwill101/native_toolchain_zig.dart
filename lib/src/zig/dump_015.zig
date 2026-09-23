@@ -40,12 +40,22 @@ pub fn main() !void {
     };
     defer if (sysroot) |value| allocator.free(value);
 
+    const link_libc = std.process.getEnvVarOwned(
+        allocator,
+        "NATIVE_TOOLCHAIN_ZIG_LINK_LIBC",
+    ) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
+    defer if (link_libc) |value| allocator.free(value);
+
     const document = try dump.extractDocument(
         allocator,
         root_source_file,
         {},
         target,
         sysroot,
+        if (link_libc) |value| std.mem.eql(u8, value, "true") else false,
     );
 
     const stdout = std.fs.File.stdout().deprecatedWriter();

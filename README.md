@@ -290,6 +290,12 @@ file's directory, its `include/` subdirectory, and a sibling `include/`
 directory. Configure include paths and libc linkage in `build.zig` separately
 for the native build, as shown in [the cImport example](example/cimport).
 
+C translation enables libc headers when the selected root module in `build.zig`
+contains a literal `.link_libc = true`. Use `--link-libc` or `--no-link-libc`
+(`ZigBindingsOptions.linkLibc` in Dart) to override detection. Computed settings,
+method calls, and build configuration imported from other files require an
+explicit override. Keep this setting aligned with your native build.
+
 For target-dependent C headers, pass the same target ABI and appropriate system
 root used by your native build:
 
@@ -319,6 +325,7 @@ build configuration. Regenerate target-dependent bindings when changing ABI.
 | `--asset-id` | Override the generated native asset ID. |
 | `--target` | Zig target triple passed to C translation. |
 | `--sysroot` | Target system root passed to C translation. |
+| `--[no-]link-libc` | Override libc header support; otherwise inferred from the selected module in `build.zig`. |
 | `--watch`, `-w` | Regenerate when files under the Zig directory change. |
 | `--help`, `-h` | Show command usage. |
 

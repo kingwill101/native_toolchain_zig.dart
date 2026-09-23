@@ -123,6 +123,56 @@ String? _readRootSourceFileFromBuildZig(File buildZigFile) {
   return match?.group(1);
 }
 
+bool _readLinkLibcFromBuildZig(Directory zigDirectory, File rootSourceFile) {
+  final buildFile = File(path.join(zigDirectory.path, 'build.zig'));
+  if (!buildFile.existsSync()) {
+    return false;
+  }
+
+  // Tokenize strings and comments together so braces or settings inside either
+  // cannot be mistaken for module options. Zig has line comments only.
+  final tokens = RegExp(
+    r'//[^\n]*|\\\\[^\n]*|"(?:\\.|[^"\\])*"|[{}]|[^/"{}\\]+|.',
+    dotAll: true,
+  ).allMatches(buildFile.readAsStringSync());
+  final scopes = <StringBuffer>[StringBuffer()];
+  final strings = <String>[];
+  final matchingSettings = <bool>[];
+  for (final token in tokens) {
+    final value = token.group(0)!;
+    if (value.startsWith('//') || value.startsWith(r'\\')) {
+      scopes.last.write(' ');
+    } else if (value == '{') {
+      scopes.add(StringBuffer());
+    } else if (value == '}' && scopes.length > 1) {
+      final contents = scopes.removeLast().toString();
+      // Only examine fields in this scope, excluding nested module options.
+      final root = RegExp(
+        r'\.root_source_file\s*=\s*b\.path\(\s*@STRING(\d+)@\s*\)',
+      ).firstMatch(contents);
+      final rootPath = root == null ? null : strings[int.parse(root.group(1)!)];
+      if (root != null &&
+          path.equals(
+            path.normalize(path.join(zigDirectory.path, rootPath!)),
+            path.normalize(rootSourceFile.path),
+          )) {
+        final setting = RegExp(r'\.link_libc\s*=\s*(true|false)\s*[,\n]')
+            .firstMatch(contents);
+        matchingSettings.add(setting?.group(1) == 'true');
+      }
+      scopes.last.write(' {} ');
+    } else if (value.startsWith('"')) {
+      scopes.last.write('@STRING${strings.length}@');
+      strings.add(value.substring(1, value.length - 1));
+    } else {
+      scopes.last.write(value);
+    }
+  }
+  // Ambiguous modules sharing a root require an explicit override.
+  return matchingSettings.isNotEmpty &&
+      matchingSettings.every((value) => value);
+}
+
 String _resolveOutputPath({
   required String packageRoot,
   required String output,

@@ -48,6 +48,10 @@ Future<void> main(List<String> arguments) async {
       'sysroot',
       help: 'Target C system root passed to `zig translate-c`.',
     )
+    ..addFlag(
+      'link-libc',
+      help: 'Override libc header support for C translation; otherwise inferred from build.zig.',
+    )
     ..addOption(
       'package-root',
       help: 'Override the package root. Defaults to the current directory.',
@@ -110,6 +114,9 @@ Future<void> main(List<String> arguments) async {
     assetId: command['asset-id'] as String?,
     target: command['target'] as String?,
     sysroot: command['sysroot'] as String?,
+    linkLibc: command.wasParsed('link-libc')
+        ? command['link-libc'] as bool
+        : null,
     watch: command['watch'] as bool,
   );
 

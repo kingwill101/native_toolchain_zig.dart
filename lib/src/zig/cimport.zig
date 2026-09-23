@@ -101,11 +101,15 @@ pub fn runTranslateC(
     io: anytype,
     target: ?[]const u8,
     sysroot: ?[]const u8,
+    link_libc: bool,
 ) anyerror![]const u8 {
     // Build the argument list with auto-discovered include paths.
     var args = std.ArrayList([]const u8).empty;
     try args.append(allocator, "zig");
     try args.append(allocator, "translate-c");
+    if (link_libc) {
+        try args.append(allocator, "-lc");
+    }
     if (target) |triple| {
         try args.append(allocator, "-target");
         try args.append(allocator, triple);
@@ -218,13 +222,13 @@ test "runTranslateC translates a simple C header" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try test_fs.writeFile(tmp.dir, "simple.h", "typedef long Dart_Port_DL;\n");
+    try test_fs.writeFile(tmp.dir, "simple.h", "#include <assert.h>\n#include <stdlib.h>\ntypedef long Dart_Port_DL;\n");
 
     const temp_abs = try test_fs.realpathAlloc(tmp.parent_dir, allocator, &tmp.sub_path);
     const c_abs = try std.fs.path.join(allocator, &.{ temp_abs, "test.c" });
     try test_fs.writeFile(tmp.dir, "test.c", "#include \"simple.h\"\n");
 
-    const zig_source = try runTranslateC(allocator, c_abs, test_fs.io, null, null);
+    const zig_source = try runTranslateC(allocator, c_abs, test_fs.io, null, null, true);
     try std.testing.expect(std.mem.indexOf(u8, zig_source, "Dart_Port_DL") != null);
 }
 
@@ -247,6 +251,7 @@ test "runTranslateC accepts an explicit target and sysroot" {
         test_fs.io,
         "aarch64-linux-gnu",
         "/",
+        false,
     );
     try std.testing.expect(std.mem.indexOf(u8, zig_source, "TargetValue") != null);
 }

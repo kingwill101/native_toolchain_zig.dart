@@ -105,6 +105,7 @@ fn collectTestDocument(
         test_fs.io,
         null,
         null,
+        false,
     );
 }
 
@@ -537,6 +538,7 @@ test "Extractor.collect resolves @cImport types from fixture directory" {
         test_fs.io,
         "aarch64-linux-gnu",
         null,
+        false,
     );
 
     // translate-c should resolve C typedefs to their Zig representations.

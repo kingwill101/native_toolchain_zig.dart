@@ -59,9 +59,10 @@ const Extractor = struct {
     cImportTypes: std.StringHashMap(void),
     target: ?[]const u8,
     sysroot: ?[]const u8,
+    link_libc: bool,
 
     /// Creates an empty collector. The caller owns allocator lifetime.
-    fn init(allocator: Allocator, target: ?[]const u8, sysroot: ?[]const u8) Extractor {
+    fn init(allocator: Allocator, target: ?[]const u8, sysroot: ?[]const u8, link_libc: bool) Extractor {
         return .{
             .allocator = allocator,
             .raw_types = .empty,
@@ -76,6 +77,7 @@ const Extractor = struct {
             .cImportTypes = std.StringHashMap(void).init(allocator),
             .target = target,
             .sysroot = sysroot,
+            .link_libc = link_libc,
         };
     }
 
@@ -442,6 +444,7 @@ const Extractor = struct {
                 io,
                 self.target,
                 self.sysroot,
+                self.link_libc,
             ) catch |err| {
                 std.debug.print(
                     "error: failed to translate @cImport C source: {s}\n",
@@ -1022,7 +1025,8 @@ pub fn extractDocument(
     io: anytype,
     target: ?[]const u8,
     sysroot: ?[]const u8,
+    link_libc: bool,
 ) !Document {
-    var extractor = Extractor.init(allocator, target, sysroot);
+    var extractor = Extractor.init(allocator, target, sysroot, link_libc);
     return try extractor.collect(root_source_file, io);
 }

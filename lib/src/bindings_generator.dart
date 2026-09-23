@@ -28,6 +28,7 @@ final class ZigBindingsOptions {
     this.assetId,
     this.target,
     this.sysroot,
+    this.linkLibc,
     this.watch = false,
   });
 
@@ -51,6 +52,13 @@ final class ZigBindingsOptions {
 
   /// Optional target C system root used when translating imported C headers.
   final String? sysroot;
+
+  /// Whether C translation should enable libc headers.
+  ///
+  /// When omitted, reads a literal `.link_libc` setting from the matching
+  /// root module in `build.zig`, defaulting to false. Set explicitly for
+  /// computed build settings or to override detection.
+  final bool? linkLibc;
 
   /// Whether to keep watching the Zig directory and regenerate on changes.
   final bool watch;
@@ -173,6 +181,9 @@ Future<GeneratedBindingsResult> generateBindingsSource(
     rootSourceFile,
     target: options.target,
     sysroot: options.sysroot,
+    linkLibc:
+        options.linkLibc ??
+        _readLinkLibcFromBuildZig(zigDirectory, rootSourceFile),
   );
 
   if (api.functions.isEmpty && api.globals.isEmpty) {
@@ -203,6 +214,7 @@ Future<ZigApiDescription> _extractApiDescription(
   File rootSourceFile, {
   String? target,
   String? sysroot,
+  required bool linkLibc,
 }) async {
   var helperScriptPath = await _helperScriptPath();
   var metadataJson = await _runProcess(
@@ -213,6 +225,7 @@ Future<ZigApiDescription> _extractApiDescription(
       'NATIVE_TOOLCHAIN_ZIG_ROOT_SOURCE_FILE': rootSourceFile.path,
       'NATIVE_TOOLCHAIN_ZIG_TARGET': ?target,
       'NATIVE_TOOLCHAIN_ZIG_SYSROOT': ?sysroot,
+      'NATIVE_TOOLCHAIN_ZIG_LINK_LIBC': '$linkLibc',
     },
   );
 

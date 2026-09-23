@@ -21,6 +21,7 @@ pub fn main(init: std.process.Init) !void {
         init.io,
         init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_TARGET"),
         init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_SYSROOT"),
+        std.mem.eql(u8, init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_LINK_LIBC") orelse "false", "true"),
     );
 
     var stdout_buffer: [4096]u8 = undefined;
