@@ -1,10 +1,16 @@
-## 0.2.1
+## 0.3.0
+
+### Breaking changes
+
+Generated bindings can differ from 0.2.x in type selection, callback signatures,
+and array layouts. Packed structs and ambiguous type matches now fail generation.
+
+### Changes
 
 - Prefer exact ABI type names and reject ambiguous suffix matches.
 - Reject Zig packed structs rather than emit incompatible Dart layouts.
 - Include sentinel storage in array dimensions, including nested arrays.
 - Translate multiple C includes on the same source line correctly.
-
 - Prevent generated files and nested Zig caches from retriggering watch mode.
 - Detect libc header support for C imports with a Zig comptime check using the
   selected build module's configuration, with CLI and Dart API overrides.
