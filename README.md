@@ -284,38 +284,17 @@ Use `--asset-id` when the generated file should refer to an asset registered
 under a different name. Binding generation and native compilation are separate
 steps: rerun the CLI (or use `--watch`) when the exported interface changes.
 
-### C imports and cross compilation
+### C imports
 
-The generator translates `@cImport` include blocks and resolves translated C
-types used by exported Zig declarations. Header discovery checks the source
-file's directory, its `include/` subdirectory, and a sibling `include/`
-directory. Configure include paths and libc linkage in `build.zig` separately
-for the native build, as shown in [the cImport example](example/cimport).
-
-C translation checks `@import("builtin").link_libc` at compile time using the
-selected library module's configuration from `build.zig`. This evaluates computed
-build settings and does not execute target code, so it also works for cross
-compilation. Use `--link-libc` or `--no-link-libc` (`ZigBindingsOptions.linkLibc`
-in Dart) to override detection and skip the probe. Without `build.zig`, libc
-support defaults to disabled. Keep overrides aligned with your native build.
-
-For target-dependent C headers, pass the same target ABI and appropriate system
-root used by your native build:
+Generate bindings for Zig exports that use local C headers through `@cImport`:
 
 ```bash
-dart run native_toolchain_zig:zig bindings \
-  --package-root example/cimport \
-  --zig-dir zig \
-  --root-source-file src/lib.zig \
-  --output lib/ffi.g.dart \
-  --target aarch64-linux-gnu \
-  --sysroot /path/to/target/sysroot
+dart run native_toolchain_zig:zig bindings --package-root example/cimport --output lib/ffi.g.dart
 ```
 
-Replace the sysroot placeholder with an installed target sysroot, or omit
-`--sysroot` if one is not needed. These options configure C translation during
-binding generation. The build hook selects its compilation target from Dart's
-build configuration. Regenerate target-dependent bindings when changing ABI.
+See the [C imports guide](https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/doc/c_imports.md) for header discovery, libc settings,
+cross-compilation, callbacks, and troubleshooting, or explore the
+[cImport stress example](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/cimport).
 
 ### CLI options
 
@@ -363,10 +342,10 @@ provides continuous regeneration.
 
 | Example | Demonstrates | Run from its example directory |
 | --- | --- | --- |
-| [bindings](example/bindings) | Generated bindings and a Dart counter wrapper. | `dart run bindings:main` |
-| [cimport](example/cimport) | Nested C headers, structs, unions, arrays, pointers, and callbacks. | `dart run cimport:main` |
-| [math](example/math) | A native math library with handwritten FFI bindings. | `dart run math:main` |
-| [dart_api](example/dart_api) | Dart native API initialization and isolate messaging. | `dart run dart_api:main` |
+| [bindings](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/bindings) | Generated bindings and a Dart counter wrapper. | `dart run bindings:main` |
+| [cimport](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/cimport) | Nested C headers, structs, unions, arrays, pointers, and callbacks. | `dart run cimport:main` |
+| [math](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/math) | A native math library with handwritten FFI bindings. | `dart run math:main` |
+| [dart_api](https://github.com/ykmnkmi/native_toolchain_zig.dart/tree/main/example/dart_api) | Dart native API initialization and isolate messaging. | `dart run dart_api:main` |
 
 ## Development and validation
 
@@ -389,9 +368,17 @@ CI runs the checks on Zig 0.15.2 and 0.16.0. Its Dart test command is
 `dart test -P ci`, which excludes tests tagged `fails-on-ci`; use `dart test`
 locally for the unfiltered suite.
 
+API documentation embeds marked regions from the maintained examples using
+Dartdoc's `{@example}` directive. Generate and validate it with:
+
+```bash
+dart pub global activate dartdoc 9.0.9
+dart pub global run dartdoc --output .dart_tool/doc_preview --validate-links
+```
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/ykmnkmi/native_toolchain_zig.dart/blob/main/LICENSE) for details.
 
 <!-- Badges -->
 

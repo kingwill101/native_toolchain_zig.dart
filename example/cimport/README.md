@@ -4,6 +4,9 @@ Demonstrates generating Dart FFI bindings from a Zig source file that uses `@cIm
 with nested headers, structs, unions, enums, callbacks, arrays, and opaque-like
 pointer patterns.
 
+See the [C imports guide](../../doc/c_imports.md) for header discovery, libc,
+cross-compilation, and limitations.
+
 ## Generating Bindings
 
 From the `example/cimport` directory:
