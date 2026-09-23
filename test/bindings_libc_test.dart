@@ -35,22 +35,87 @@ export fn magnitude(value: c_int) c_int { return c.abs(value); }
       );
     }
 
-    Future<void> writeBuild(String settings, {String extra = ''}) {
+    Future<void> writeBuild(
+      String settings, {
+      String extra = '',
+      String configure = '',
+    }) {
       return File(path.join(package.path, 'zig/build.zig')).writeAsString('''
 const std = @import("std");
 pub fn build(b: *std.Build) void {
     $extra
-    _ = b.createModule(.{
+    const module = b.createModule(.{
+        .target = b.standardTargetOptions(.{}),
         .root_source_file = b.path("src/root.zig"),
         $settings
     });
+    $configure
+    const lib = b.addLibrary(.{ .name = "libc_test", .root_module = module });
+    b.installArtifact(lib);
 }
 ''');
     }
 
-    test('detects enabled libc on the selected module', () async {
+    test('checks builtin.link_libc for the selected module', () async {
       await writeBuild('.link_libc = true,');
       expect((await generate()).source, contains('external int magnitude('));
+    });
+
+    test('detects computed libc settings', () async {
+      await writeBuild(
+        '.link_libc = enabled,',
+        extra: 'const enabled = @sizeOf(usize) > 0;',
+      );
+      expect((await generate()).functionCount, 1);
+    });
+
+    test(
+      'compiles the probe for a cross target without executing it',
+      () async {
+        await writeBuild('.link_libc = true,');
+        var result = await generateBindingsSource(
+          ZigBindingsOptions(
+            packageRoot: package.path,
+            output: 'lib/ffi.g.dart',
+            target: 'aarch64-linux-gnu',
+          ),
+        );
+        expect(result.functionCount, 1);
+      },
+    );
+
+    test('libc-disabled projects generate without libc headers', () async {
+      await writeBuild('.link_libc = false,');
+      await File(path.join(package.path, 'zig/src/root.zig'))
+          .writeAsString('export fn value() i32 { return 1; }');
+      expect((await generate()).functionCount, 1);
+    });
+
+    test('detects libc enabled through a module method', () async {
+      await writeBuild('', configure: 'module.linkSystemLibrary("c", .{});');
+      expect((await generate()).functionCount, 1);
+    });
+
+    test('reports build failures and cleans temporary wrappers', () async {
+      await File(path.join(package.path, 'zig/build.zig'))
+          .writeAsString('invalid Zig code');
+      await expectLater(
+        generate(),
+        throwsA(
+          isA<ProcessException>().having(
+            (error) => error.message,
+            'message',
+            contains('Could not determine libc configuration'),
+          ),
+        ),
+      );
+      expect(
+        Directory(path.join(package.path, 'zig')).listSync().where(
+          (file) => path.basename(file.path).startsWith('.zigchain_probe_'),
+        ),
+        isEmpty,
+      );
+      expect((await generate(linkLibc: true)).functionCount, 1);
     });
 
     test('explicit true enables libc without a build file', () async {
@@ -81,7 +146,19 @@ pub fn build(b: *std.Build) void {
         'does not enable libc for absent, false, or commented setting: $setting',
         () async {
           await writeBuild(setting);
-          await expectLater(generate(), throwsA(isA<ProcessException>()));
+          await expectLater(
+            generate(),
+            throwsA(
+              isA<ProcessException>().having(
+                (error) => error.message,
+                'message',
+                anyOf(
+                  contains("'assert.h' file not found"),
+                  contains("'assert.h' not found"),
+                ),
+              ),
+            ),
+          );
         },
         testOn: 'linux',
       );
@@ -91,7 +168,16 @@ pub fn build(b: *std.Build) void {
       await writeBuild('.link_libc = true,');
       await expectLater(
         generate(linkLibc: false),
-        throwsA(isA<ProcessException>()),
+        throwsA(
+          isA<ProcessException>().having(
+            (error) => error.message,
+            'message',
+            anyOf(
+              contains("'assert.h' file not found"),
+              contains("'assert.h' not found"),
+            ),
+          ),
+        ),
       );
     }, testOn: 'linux');
 
@@ -107,7 +193,19 @@ _ = b.createModule(.{
 });
 ''',
       );
-      await expectLater(generate(), throwsA(isA<ProcessException>()));
+      await expectLater(
+        generate(),
+        throwsA(
+          isA<ProcessException>().having(
+            (error) => error.message,
+            'message',
+            anyOf(
+              contains("'assert.h' file not found"),
+              contains("'assert.h' not found"),
+            ),
+          ),
+        ),
+      );
     }, testOn: 'linux');
   });
 }

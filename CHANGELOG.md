@@ -1,7 +1,7 @@
 ## 0.2.1
 
-- Infer libc header support for C imports from the selected module's literal
-  `build.zig` setting, with CLI and Dart API overrides.
+- Detect libc header support for C imports with a Zig comptime check using the
+  selected build module's configuration, with CLI and Dart API overrides.
 - Stop tracking generated `.zigchain_cimport` intermediate files.
 - Add `@cImport` bindings support, including local header discovery and resolution
   of translated C types used by exported Zig declarations.

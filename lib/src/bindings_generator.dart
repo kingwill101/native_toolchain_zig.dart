@@ -55,9 +55,10 @@ final class ZigBindingsOptions {
 
   /// Whether C translation should enable libc headers.
   ///
-  /// When omitted, reads a literal `.link_libc` setting from the matching
-  /// root module in `build.zig`, defaulting to false. Set explicitly for
-  /// computed build settings or to override detection.
+  /// When omitted, evaluates `build.zig` and compiles a probe of
+  /// `@import("builtin").link_libc` with the selected module's configuration.
+  /// Defaults to false when there is no build file. An explicit value skips
+  /// the probe.
   final bool? linkLibc;
 
   /// Whether to keep watching the Zig directory and regenerate on changes.
@@ -183,7 +184,12 @@ Future<GeneratedBindingsResult> generateBindingsSource(
     sysroot: options.sysroot,
     linkLibc:
         options.linkLibc ??
-        _readLinkLibcFromBuildZig(zigDirectory, rootSourceFile),
+        await _detectLinkLibc(
+          zigDirectory,
+          rootSourceFile,
+          target: options.target,
+          sysroot: options.sysroot,
+        ),
   );
 
   if (api.functions.isEmpty && api.globals.isEmpty) {

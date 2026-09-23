@@ -123,54 +123,77 @@ String? _readRootSourceFileFromBuildZig(File buildZigFile) {
   return match?.group(1);
 }
 
-bool _readLinkLibcFromBuildZig(Directory zigDirectory, File rootSourceFile) {
+Future<bool> _detectLinkLibc(
+  Directory zigDirectory,
+  File rootSourceFile, {
+  String? target,
+  String? sysroot,
+}) async {
   final buildFile = File(path.join(zigDirectory.path, 'build.zig'));
   if (!buildFile.existsSync()) {
     return false;
   }
-
-  // Tokenize strings and comments together so braces or settings inside either
-  // cannot be mistaken for module options. Zig has line comments only.
-  final tokens = RegExp(
-    r'//[^\n]*|\\\\[^\n]*|"(?:\\.|[^"\\])*"|[{}]|[^/"{}\\]+|.',
-    dotAll: true,
-  ).allMatches(buildFile.readAsStringSync());
-  final scopes = <StringBuffer>[StringBuffer()];
-  final strings = <String>[];
-  final matchingSettings = <bool>[];
-  for (final token in tokens) {
-    final value = token.group(0)!;
-    if (value.startsWith('//') || value.startsWith(r'\\')) {
-      scopes.last.write(' ');
-    } else if (value == '{') {
-      scopes.add(StringBuffer());
-    } else if (value == '}' && scopes.length > 1) {
-      final contents = scopes.removeLast().toString();
-      // Only examine fields in this scope, excluding nested module options.
-      final root = RegExp(
-        r'\.root_source_file\s*=\s*b\.path\(\s*@STRING(\d+)@\s*\)',
-      ).firstMatch(contents);
-      final rootPath = root == null ? null : strings[int.parse(root.group(1)!)];
-      if (root != null &&
-          path.equals(
-            path.normalize(path.join(zigDirectory.path, rootPath!)),
-            path.normalize(rootSourceFile.path),
-          )) {
-        final setting = RegExp(r'\.link_libc\s*=\s*(true|false)\s*[,\n]')
-            .firstMatch(contents);
-        matchingSettings.add(setting?.group(1) == 'true');
-      }
-      scopes.last.write(' {} ');
-    } else if (value.startsWith('"')) {
-      scopes.last.write('@STRING${strings.length}@');
-      strings.add(value.substring(1, value.length - 1));
-    } else {
-      scopes.last.write(value);
-    }
+  final templateUri = await Isolate.resolvePackageUri(
+    Uri.parse('package:native_toolchain_zig/src/zig/libc_probe_build.zig'),
+  );
+  if (templateUri == null) {
+    throw StateError('Could not resolve libc probe.');
   }
-  // Ambiguous modules sharing a root require an explicit override.
-  return matchingSettings.isNotEmpty &&
-      matchingSettings.every((value) => value);
+  final template = await File.fromUri(templateUri).readAsString();
+  // Keep the wrapper beside build.zig so all project-relative paths and imports
+  // retain their meaning. A unique name allows concurrent generation requests.
+  final temporary = await Directory.systemTemp.createTemp('zigchain_probe_');
+  final name = '.${path.basename(temporary.path)}.zig';
+  final wrapper = File(path.join(zigDirectory.path, name));
+  final manifest = File('${wrapper.path}.zon');
+  try {
+    await wrapper.writeAsString(
+      '$template\nconst project_build = @import("build.zig");\n'
+      'const selected_root = ${jsonEncode(rootSourceFile.path)};\n',
+    );
+    final projectManifest = File('${buildFile.path}.zon');
+    if (projectManifest.existsSync()) {
+      await projectManifest.copy(manifest.path);
+    }
+    final arguments = [
+      'build',
+      '--build-file',
+      name,
+      'zigchain-libc-probe',
+      '--color',
+      'off',
+      if (target != null) '-Dtarget=$target',
+      if (sysroot != null) ...['--sysroot', sysroot],
+    ];
+    final result = await Process.run(
+      'zig',
+      arguments,
+      workingDirectory: zigDirectory.path,
+    );
+    final diagnostics = '${result.stdout}${result.stderr}';
+    final values = RegExp('error: ZIGCHAIN_LINK_LIBC=(true|false)')
+        .allMatches(diagnostics)
+        .map((match) => match.group(1) == 'true')
+        .toSet();
+    if (values.length != 1) {
+      throw ProcessException(
+        'zig',
+        arguments,
+        'Could not determine libc configuration. Use --link-libc or '
+            '--no-link-libc to select it explicitly.\n$diagnostics',
+        result.exitCode,
+      );
+    }
+    return values.single;
+  } finally {
+    if (wrapper.existsSync()) {
+      await wrapper.delete();
+    }
+    if (manifest.existsSync()) {
+      await manifest.delete();
+    }
+    await temporary.delete();
+  }
 }
 
 String _resolveOutputPath({
