@@ -15,7 +15,13 @@ pub fn main(init: std.process.Init) !void {
     defer arena_state.deinit();
     const allocator = arena_state.allocator();
 
-    const document = try dump.extractDocument(allocator, root_source_file, init.io);
+    const document = try dump.extractDocument(
+        allocator,
+        root_source_file,
+        init.io,
+        init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_TARGET"),
+        init.environ_map.get("NATIVE_TOOLCHAIN_ZIG_SYSROOT"),
+    );
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);

@@ -22,7 +22,31 @@ pub fn main() !void {
     };
     defer allocator.free(root_source_file);
 
-    const document = try dump.extractDocument(allocator, root_source_file, {});
+    const target = std.process.getEnvVarOwned(
+        allocator,
+        "NATIVE_TOOLCHAIN_ZIG_TARGET",
+    ) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
+    defer if (target) |value| allocator.free(value);
+
+    const sysroot = std.process.getEnvVarOwned(
+        allocator,
+        "NATIVE_TOOLCHAIN_ZIG_SYSROOT",
+    ) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => |e| return e,
+    };
+    defer if (sysroot) |value| allocator.free(value);
+
+    const document = try dump.extractDocument(
+        allocator,
+        root_source_file,
+        {},
+        target,
+        sysroot,
+    );
 
     const stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.print("{f}\n", .{std.json.fmt(document, .{})});
