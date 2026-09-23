@@ -96,6 +96,31 @@ pub fn build(b: *std.Build) void {
       expect((await generate()).functionCount, 1);
     });
 
+    test('rejects conflicting artifacts sharing the selected source', () async {
+      await writeBuild(
+        '.link_libc = true,',
+        extra: '''
+const other = b.createModule(.{
+    .target = b.standardTargetOptions(.{}),
+    .root_source_file = b.path("src/root.zig"),
+    .link_libc = false,
+});
+b.installArtifact(b.addLibrary(.{ .name = "other", .root_module = other }));
+''',
+      );
+      await expectLater(
+        generate(),
+        throwsA(
+          isA<ProcessException>().having(
+            (error) => error.message,
+            'message',
+            contains('Could not determine libc configuration'),
+          ),
+        ),
+      );
+      expect((await generate(linkLibc: true)).functionCount, 1);
+    });
+
     test('reports build failures and cleans temporary wrappers', () async {
       await File(path.join(package.path, 'zig/build.zig'))
           .writeAsString('invalid Zig code');
