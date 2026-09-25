@@ -30,6 +30,9 @@ import 'src/builder.dart' show ZigBuilder;
 export 'src/bindings_generator.dart'
     show
         GeneratedBindingsResult,
+        GeneratedDartFunction,
+        GeneratedDartParameter,
+        GeneratedDartType,
         ZigBindingsOptions,
         generateBindings,
         generateBindingsSource,

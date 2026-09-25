@@ -97,6 +97,7 @@ final class GeneratedBindingsResult {
     required this.outputPath,
     required this.assetId,
     required this.source,
+    required this.functions,
     required this.dependencies,
     required this.functionCount,
     required this.globalCount,
@@ -114,6 +115,12 @@ final class GeneratedBindingsResult {
 
   /// Generated Dart source code.
   final String source;
+
+  /// Public Dart functions emitted for the exported Zig declarations.
+  ///
+  /// Their types can be rendered with an import prefix for another Dart
+  /// library. This avoids parsing the generated source to create adapters.
+  final List<GeneratedDartFunction> functions;
 
   /// Zig source paths visited during extraction.
   ///
@@ -255,12 +262,14 @@ Future<GeneratedBindingsResult> generateBindingsSource(
       options.assetId ??
       _defaultAssetId(packageRoot: packageRoot, outputPath: outputPath);
 
-  var source = DartBindingEmitter(api: api, assetId: assetId).render();
+  var emitter = DartBindingEmitter(api: api, assetId: assetId);
+  var source = emitter.render();
   return GeneratedBindingsResult(
     rootSourceFilePath: rootSourceFile.path,
     outputPath: outputPath,
     assetId: assetId,
     source: source,
+    functions: emitter.describeFunctions(),
     dependencies: api.dependencies,
     functionCount: api.functions.length,
     globalCount: api.globals.length,

@@ -16,6 +16,27 @@ final class DartBindingEmitter {
   final Map<String, CallbackTypedefDecl> _callbackTypedefs =
       <String, CallbackTypedefDecl>{};
 
+  /// Describes the public Dart functions rendered by this emitter.
+  List<GeneratedDartFunction> describeFunctions() => [
+    for (final function in api.functions)
+      GeneratedDartFunction(
+        name: _safeMemberIdentifier(function.name),
+        returnType: _describeType(function.returnType),
+        parameters: [
+          for (final parameter in function.parameters)
+            GeneratedDartParameter(
+              name: _safeMemberIdentifier(parameter.name),
+              type: _describeType(parameter.type),
+            ),
+        ],
+      ),
+  ];
+
+  GeneratedDartType _describeType(ZigTypeRef type) => GeneratedDartType._(
+    (prefix) => _dartType(type, namedTypePrefix: prefix),
+    type is ZigPointerTypeRef,
+  );
+
   /// Returns formatted Dart source for the configured API.
   ///
   /// Throws a [StateError] when a declaration cannot be represented by Dart
@@ -539,7 +560,7 @@ final class DartBindingEmitter {
     };
   }
 
-  String _dartType(ZigTypeRef type) {
+  String _dartType(ZigTypeRef type, {String namedTypePrefix = ''}) {
     switch (type) {
       case ZigPrimitiveTypeRef(:final name):
         final spec = _primitiveSpecs[name];
@@ -551,19 +572,19 @@ final class DartBindingEmitter {
         final decl = api.typeDeclForName(name);
         if (decl == null) {
           _opaqueTypes.add(name);
-          return _safeTypeIdentifier(name);
+          return '$namedTypePrefix${_safeTypeIdentifier(name)}';
         }
-        return _safeTypeIdentifier(decl.name);
+        return '$namedTypePrefix${_safeTypeIdentifier(decl.name)}';
       case ZigPointerTypeRef(:final child):
-        return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
+        return 'ffi.Pointer<${_nativeType(_rawType(child), namedTypePrefix: namedTypePrefix)}>';
       case ZigArrayTypeRef(:final child):
-        return 'ffi.Array<${_nativeType(child)}>';
+        return 'ffi.Array<${_nativeType(child, namedTypePrefix: namedTypePrefix)}>';
       case ZigFunctionTypeRef():
-        return 'ffi.NativeFunction<${_nativeFunctionSignature(type)}>';
+        return 'ffi.NativeFunction<${_nativeFunctionSignature(type, namedTypePrefix: namedTypePrefix)}>';
     }
   }
 
-  String _nativeType(ZigTypeRef type) {
+  String _nativeType(ZigTypeRef type, {String namedTypePrefix = ''}) {
     switch (type) {
       case ZigPrimitiveTypeRef(:final name):
         final spec = _primitiveSpecs[name];
@@ -575,7 +596,7 @@ final class DartBindingEmitter {
         final decl = api.typeDeclForName(name);
         if (decl == null) {
           _opaqueTypes.add(name);
-          return _safeTypeIdentifier(name);
+          return '$namedTypePrefix${_safeTypeIdentifier(name)}';
         }
         if (decl.kind == ZigContainerKind.enumType) {
           final tagType = decl.tagType;
@@ -584,15 +605,15 @@ final class DartBindingEmitter {
               'Enum ${decl.name} must have an explicit tag type.',
             );
           }
-          return _nativeType(tagType);
+          return _nativeType(tagType, namedTypePrefix: namedTypePrefix);
         }
-        return _safeTypeIdentifier(decl.name);
+        return '$namedTypePrefix${_safeTypeIdentifier(decl.name)}';
       case ZigPointerTypeRef(:final child):
-        return 'ffi.Pointer<${_nativeType(_rawType(child))}>';
+        return 'ffi.Pointer<${_nativeType(_rawType(child), namedTypePrefix: namedTypePrefix)}>';
       case ZigArrayTypeRef(:final child):
-        return 'ffi.Array<${_nativeType(child)}>';
+        return 'ffi.Array<${_nativeType(child, namedTypePrefix: namedTypePrefix)}>';
       case ZigFunctionTypeRef():
-        return 'ffi.NativeFunction<${_nativeFunctionSignature(type)}>';
+        return 'ffi.NativeFunction<${_nativeFunctionSignature(type, namedTypePrefix: namedTypePrefix)}>';
     }
   }
 
@@ -648,10 +669,21 @@ final class DartBindingEmitter {
     }
   }
 
-  String _nativeFunctionSignature(ZigFunctionTypeRef type) {
-    final returnType = _nativeType(_rawType(type.returnType));
+  String _nativeFunctionSignature(
+    ZigFunctionTypeRef type, {
+    String namedTypePrefix = '',
+  }) {
+    final returnType = _nativeType(
+      _rawType(type.returnType),
+      namedTypePrefix: namedTypePrefix,
+    );
     final parameters = type.parameters
-        .map((parameter) => _nativeType(_rawType(parameter)))
+        .map(
+          (parameter) => _nativeType(
+            _rawType(parameter),
+            namedTypePrefix: namedTypePrefix,
+          ),
+        )
         .join(', ');
     return '$returnType Function($parameters)';
   }

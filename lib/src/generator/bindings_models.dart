@@ -2,6 +2,54 @@
 
 part of '../bindings_generator.dart';
 
+/// A public function in the generated Dart binding library.
+final class GeneratedDartFunction {
+  /// Creates a description of an emitted function.
+  const new({
+    required this.name,
+    required this.returnType,
+    required this.parameters,
+  });
+
+  /// Name callers use in the generated Dart library.
+  final String name;
+
+  /// Dart return type, including any generated ABI types.
+  final GeneratedDartType returnType;
+
+  /// Parameters in declaration order.
+  final List<GeneratedDartParameter> parameters;
+}
+
+/// A named parameter in an emitted Dart function.
+final class GeneratedDartParameter {
+  /// Creates a parameter description.
+  const new({required this.name, required this.type});
+
+  /// Name emitted in the Dart declaration.
+  final String name;
+
+  /// Dart type emitted for this parameter.
+  final GeneratedDartType type;
+}
+
+/// A Dart FFI type emitted from a Zig declaration.
+final class GeneratedDartType {
+  // ignore: unnecessary_type_name_in_constructor
+  const GeneratedDartType._(this._render, this.isPointer);
+
+  final String Function(String) _render;
+
+  /// Whether the Dart representation is an `ffi.Pointer`.
+  final bool isPointer;
+
+  /// Renders the type, optionally qualifying generated ABI names.
+  ///
+  /// For example, a pointer to `Widget` renders as `ffi.Pointer<abi.Widget>`
+  /// when [namedTypePrefix] is `abi.`. Dart FFI types retain their `ffi.` prefix.
+  String render({String namedTypePrefix = ''}) => _render(namedTypePrefix);
+}
+
 /// Metadata describing the declarations exported by a Zig package.
 final class ZigApiDescription {
   /// Creates an API description from extracted metadata.
