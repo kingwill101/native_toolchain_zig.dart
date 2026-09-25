@@ -97,6 +97,7 @@ final class GeneratedBindingsResult {
     required this.outputPath,
     required this.assetId,
     required this.source,
+    required this.typesSource,
     required this.functions,
     required this.dependencies,
     required this.functionCount,
@@ -115,6 +116,12 @@ final class GeneratedBindingsResult {
 
   /// Generated Dart source code.
   final String source;
+
+  /// Generated ABI type declarations without native functions or an asset ID.
+  ///
+  /// A package can use this as its shared Dart type vocabulary while each
+  /// application generates bindings for its own native asset.
+  final String typesSource;
 
   /// Public Dart functions emitted for the exported Zig declarations.
   ///
@@ -264,11 +271,13 @@ Future<GeneratedBindingsResult> generateBindingsSource(
 
   var emitter = DartBindingEmitter(api: api, assetId: assetId);
   var source = emitter.render();
+  var typesSource = emitter.renderTypes();
   return GeneratedBindingsResult(
     rootSourceFilePath: rootSourceFile.path,
     outputPath: outputPath,
     assetId: assetId,
     source: source,
+    typesSource: typesSource,
     functions: emitter.describeFunctions(),
     dependencies: api.dependencies,
     functionCount: api.functions.length,
